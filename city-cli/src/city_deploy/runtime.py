@@ -59,6 +59,17 @@ TLS_SECRET = "city-agent-ingress"
 PROXY_ONLY_CIDR = "10.49.0.0/23"
 # Google health probes for the internal application load balancer.
 HEALTH_CHECK_CIDRS = ("35.191.0.0/16", "130.211.0.0/22")
+# Public HTTPS/HTTP may leave the agents VPC through Cloud NAT (ADR-033 / ADR-137).
+# Private ranges stay on the city CIDR rule so pods cannot reach each other or the metadata server.
+_PRIVATE_EXCEPT = (
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "169.254.0.0/16",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+)
+_PUBLIC_HTTP_PORTS = (80, 443)
 # images/city-sdk creates user city with this uid. The image USER is a name, which the
 # kubelet cannot check against runAsNonRoot, so pods state the number.
 CITY_UID = 65532
@@ -331,7 +342,7 @@ class _DrainSet(set[str]):
 
 
 class GkeRuntime:
-    """Autopilot workloads: gVisor, no API token, digest pin, city-only egress."""
+    """Autopilot workloads: gVisor, no API token, digest pin, city + public HTTPS egress."""
 
     def __init__(
         self,
@@ -1113,7 +1124,7 @@ def workloads(
                     "ports": [{"protocol": "TCP", "port": AGENT_CONTAINER_PORT}],
                 }
             ],
-            "egress": [_dns_egress(), *egress],
+            "egress": [_dns_egress(), *egress, _public_https_egress()],
         },
     }
     deploy = {
@@ -1361,6 +1372,15 @@ def _dns_egress() -> dict[str, Any]:
             {"ipBlock": {"cidr": "169.254.20.10/32"}},
         ],
         "ports": [{"protocol": "UDP", "port": 53}, {"protocol": "TCP", "port": 53}],
+    }
+
+
+def _public_https_egress() -> dict[str, Any]:
+    """TCP 80/443 to the public internet; private ranges stay denied (ADR-033, ADR-137)."""
+
+    return {
+        "to": [{"ipBlock": {"cidr": "0.0.0.0/0", "except": list(_PRIVATE_EXCEPT)}}],
+        "ports": [{"protocol": "TCP", "port": port} for port in _PUBLIC_HTTP_PORTS],
     }
 
 
