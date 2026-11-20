@@ -1194,7 +1194,15 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
                           and fields_of(row.text).get("request_id") == request_id for row in chat):
         return
     if not re.fullmatch(r"[A-Z]{2,5}-[A-Z]{2,5}", procedure or ""):
-        return
+        # Other teams name the service, not our code: physiatry is the only one we serve.
+        text = (message.text or "").lower() + " " + str(procedure).lower()
+        if any(word in text for word in _PHYSIATRY_WORDS):
+            procedure = "VIS-FIS"
+        else:
+            await _say(city, peer, "unavailable" + (f" request_id={request_id}" if request_id else "")
+                       + " Questo ospedale offre visite fisiatriche (VIS-FIS). / This hospital offers "
+                       "physiatry visits (VIS-FIS).")
+            return
     if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):
         await _say(city, LEDGER, "agenda")
     if not _asked(chat, agent, procedure, 1):
@@ -1224,7 +1232,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     chosen = fitting(
         _all_slot_lines(chat), now=now, priority=priority,
         lang=data.get("lang", "it"), facility=agent, procedure=procedure,
-    )[:3]
+    )[:5]
     tail = f" request_id={request_id}" if request_id else ""
     if not chosen:
         await _say(
@@ -1380,6 +1388,11 @@ async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
 
 
 async def _on_committed(city: City, message: Message, chat: list[Message]) -> None:
+    await _on_committed_core(city, message, chat)
+    await _notify_gp(city, message, chat)
+
+
+async def _on_committed_core(city: City, message: Message, chat: list[Message]) -> None:
     fields = fields_of(message.text)
     booking_id = fields.get("booking_id", "")
     ledger_ref = fields.get("ledger_ref", "")
@@ -1635,3 +1648,56 @@ async def _facility(
         await _citizen_desk(city, message, chat, reports=reports)
         return
     await _facility_core(city, message, chat, reports=reports, hold_self=hold_self)
+
+
+# --- collaboration: the prescribing GP and partner booking centres -------------------------
+
+_TEAM_GP = "agent:c2ewegr2ea3v"
+_PHYSIATRY_WORDS = ("vis-fis", "physiatr", "fisiatr", "hospital.physiatry", "riabilit", "rehab")
+_AVAILABILITY_WORDS = ("availab", "disponibil", "slot", "posti", "posto", "appointment", "appuntament")
+_NOTIFIED: set[str] = set()
+
+
+async def _notify_gp(city: City, message: Message, chat: list[Message]) -> None:
+    """Close the loop with the GP who prescribed: the visit is booked (once per booking)."""
+
+    data = fields_of(message.text)
+    booking_id = data.get("booking_id", "")
+    if not booking_id or booking_id in _NOTIFIED or city.agent_id == _TEAM_GP:
+        return
+    slot = data.get("slot_id") or _hold_slot(chat, city.agent_id, data.get("hold_id", ""))
+    _, _, number = _booking_of(chat, city.agent_id, slot) if slot else ("", "", None)
+    if not number or not str(number).startswith("prescription_number-"):
+        return
+    if any(row.sender == city.agent_id and row.recipient == _TEAM_GP and booking_id in row.text for row in chat):
+        return
+    _NOTIFIED.add(booking_id)
+    when = next((fields_of(line).get("at", "") for line in _all_slot_lines(chat)
+                 if fields_of(line).get("slot_id") == slot), "")
+    await _say(city, _TEAM_GP,
+               f"booking.notice booking_id={booking_id} prescription_number={number}"
+               + (f" agenda_date={when}" if when else "")
+               + " Visita fisiatrica prenotata per la sua ricetta: il paziente farà il check-in in ospedale.")
+
+
+_facility_collab_core = _facility
+
+
+async def _facility(
+    city: City,
+    message: Message,
+    chat: list[Message],
+    *,
+    reports: bool,
+    hold_self: bool,
+) -> None:
+    head = first_word(message.text)
+    text = (message.text or "").lower()
+    if (message.sender.startswith("agent:") and head not in {"ack", "confirm", "cancel", "booking.receipt",
+                                                              "need.request", "unavailable", "offer"}
+            and "confirm" not in words(message.text)
+            and any(word in text for word in _AVAILABILITY_WORDS)):
+        # A partner asks for availability in its own words: answer like a need.request.
+        await _partner_request(city, message, chat)
+        return
+    await _facility_collab_core(city, message, chat, reports=reports, hold_self=hold_self)

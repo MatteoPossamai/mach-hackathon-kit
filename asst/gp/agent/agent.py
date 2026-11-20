@@ -554,6 +554,7 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         await _announce(city, message, chat, agent)
         return
     if not message.sender.startswith("citizen:"):
+        await _peer_note(city, message, chat)
         return
     if _emergency(message):
         await _escalate(city, message, chat)
@@ -1442,3 +1443,27 @@ def _rx_note(
     return (note + " Il centro prenotazioni le proporrà gli orari entro questa scadenza e può "
             "rispettare le sue esigenze (lingua, medico, giorni): basta dirlo. Se prima della "
             "visita la situazione peggiora, mi riscriva.")
+
+
+# --- collaboration: answer the team's facilities quickly, never ping-pong ------------------
+
+_TEAM_FACILITIES = frozenset({"agent:nanpr5mgm2py", "agent:pky3vqyqbepa", "agent:atp772whjkgd",
+                              "agent:gdrf9b9kxxss"})
+
+
+async def _peer_note(city: City, message: Message, chat: list[Message]) -> None:
+    """A booking or report notice from our own team: acknowledge it at once (one ack per notice)."""
+
+    if message.sender not in _TEAM_FACILITIES:
+        return
+    head = first_word(message.text)
+    if head in {"ack", "cancel", "unavailable"}:
+        return
+    data = fields_of(message.text)
+    ref = data.get("booking_id") or data.get("prescription_number") or ""
+    if not ref or not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", ref):
+        return
+    token = f"booking_id={ref}" if data.get("booking_id") else f"prescription_number={ref}"
+    if _we(chat, city.agent_id, token, to=message.sender, word="ack"):
+        return
+    await _say(city, message.sender, f"ack {token} Grazie, preso nota nella scheda del paziente.")

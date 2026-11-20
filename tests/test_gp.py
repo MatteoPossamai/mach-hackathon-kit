@@ -123,3 +123,34 @@ class GpProactiveTest(unittest.TestCase):
         city = C(rows)
         asyncio.run(gp._gp(city, rows[-1], rows))
         self.assertEqual(city.out, [('citizen:1', gp._OTHER_IT)])
+
+
+class GpCollaborationTest(unittest.TestCase):
+    def make(self, rows):
+        class C:
+            agent_id = 'agent:c2ewegr2ea3v'
+            def __init__(self, rows):
+                self.rows, self.out = rows, []
+            async def history(self, **kw): return list(self.rows)
+            async def say(self, to, text):
+                self.out.append((to, text))
+                self.rows.append(Message(type='chat', sender=self.agent_id, recipient=to, msg_id=f'o{len(self.rows)}', need_id='N-1', body={'text': text}))
+            async def find(self, q): return []
+        return C(rows)
+
+    def m(self, sender, text, mid):
+        return Message(type='chat', sender=sender, recipient='agent:c2ewegr2ea3v', msg_id=mid, need_id='N-1', body={'text': text})
+
+    def test_booking_notice_gets_one_quick_ack(self):
+        notice = self.m('agent:nanpr5mgm2py', 'booking.notice booking_id=B1 prescription_number=prescription_number-N-1 Visita prenotata.', 'n1')
+        city = self.make([notice])
+        asyncio.run(gp._gp(city, notice, list(city.rows)))
+        self.assertEqual(city.out, [('agent:nanpr5mgm2py', 'ack booking_id=B1 Grazie, preso nota nella scheda del paziente.')])
+        asyncio.run(gp._gp(city, notice, list(city.rows)))
+        self.assertEqual(len(city.out), 1)
+
+    def test_no_ack_to_strangers_or_to_acks(self):
+        city = self.make([])
+        asyncio.run(gp._gp(city, self.m('agent:other/x', 'booking.notice booking_id=B1', 'x1'), []))
+        asyncio.run(gp._gp(city, self.m('agent:nanpr5mgm2py', 'ack booking_id=B1', 'x2'), []))
+        self.assertEqual(city.out, [])

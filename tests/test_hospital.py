@@ -148,3 +148,56 @@ class HospitalProactiveTest(unittest.TestCase):
             asyncio.run(hospital._facility(city, question, list(city.rows), reports=False, hold_self=False))
         self.assertEqual(len(city.out), 1)
         self.assertIn('ricetta', city.out[0][1])
+
+
+class HospitalCollaborationTest(unittest.TestCase):
+    def setUp(self):
+        hospital._NOTIFIED.clear()
+
+    def ledger_city(self):
+        class C(City):
+            agent_id = 'agent:team/hospital'
+            async def say(self, to, text):
+                await super().say(to, text)
+                if to == hospital.LEDGER and text == 'agenda':
+                    self.rows.append(msg(hospital.LEDGER, 'agenda agenda_now=2026-11-20T08:00:00+00:00', mid=f'ag{len(self.rows)}'))
+                if to == hospital.LEDGER and text.startswith('world '):
+                    self.rows.append(msg(hospital.LEDGER, 'slots page=1/1\nslot_id=S1 facility=agent:team/hospital doctor_id=asst-x-h2 procedure=VIS-FIS at=2026-11-20T14:30:00+00:00 day=fri', mid=f'w{len(self.rows)}'))
+        return C
+
+    def test_partner_naming_only_the_service_gets_offers(self):
+        C = self.ledger_city()
+        incoming = msg('agent:other/bc', 'need.request service_type=hospital.physiatry priority=B request_id=r1', mid='p1')
+        city = C([incoming])
+        asyncio.run(hospital._partner_request(city, incoming, list(city.rows)))
+        self.assertTrue(any(to == 'agent:other/bc' and 'slot_id=S1' in text for to, text in city.out))
+
+    def test_partner_asking_in_words_is_answered(self):
+        C = self.ledger_city()
+        incoming = msg('agent:other/bc', 'Hello, do you have physiatry availability this week?', mid='p2')
+        city = C([incoming])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._facility(city, incoming, list(city.rows), reports=False, hold_self=False))
+        self.assertTrue(any(to == 'agent:other/bc' and 'slot_id=S1' in text for to, text in city.out))
+
+    def test_ack_from_a_peer_is_never_answered(self):
+        incoming = msg('agent:c2ewegr2ea3v', 'ack booking_id=B1 Grazie, preso nota.', mid='a1')
+        city = City([incoming])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._facility(city, incoming, list(city.rows), reports=False, hold_self=False))
+        self.assertEqual(city.out, [])
+
+    def test_gp_is_told_once_after_the_commit(self):
+        incoming = confirm(); city = City([incoming, slots()])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._on_confirm(city, incoming, list(city.rows), hold_self=False))
+        notices = [text for to, text in city.out if to == hospital._TEAM_GP]
+        self.assertEqual(len(notices), 0)  # RX1 is not one of our GP's numbers
+        hospital._NOTIFIED.clear()
+        incoming = msg('agent:team/booking', 'confirm offer_id=O1 slot_id=S1 citizen=citizen:1 prescription_number=prescription_number-N-1 consent_ref=C1', mid='confirm2')
+        city = City([incoming, slots()])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._on_confirm(city, incoming, list(city.rows), hold_self=False))
+        notices = [text for to, text in city.out if to == hospital._TEAM_GP]
+        self.assertEqual(len(notices), 1)
+        self.assertTrue(notices[0].startswith('booking.notice booking_id=B1 prescription_number=prescription_number-N-1'))
