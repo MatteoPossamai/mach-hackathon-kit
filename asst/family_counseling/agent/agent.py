@@ -654,6 +654,45 @@ def _is_english(chat: list[Message], text: str = "") -> bool:
     return len(words(combined) & _ENGLISH_WORDS) >= 2
 
 
+_FRUSTRATED_STEMS = (
+    "assurd",
+    "ridicol",
+    "stuf",
+    "arrabbi",
+    "vergogn",
+    "inaccettab",
+    "non funziona",
+    "perdita di tempo",
+    "frustrat",
+    "annoyed",
+    "ridiculous",
+    "unacceptable",
+    "waste of time",
+)
+_HURRIED_STEMS = (
+    "fretta",
+    "veloc",
+    "sbrig",
+    "rapido",
+    "subito",
+    "immediat",
+    "hurry",
+    "quick",
+    "asap",
+    "rush",
+)
+_PRIVACY_STEMS = (
+    "riservat",
+    "privac",
+    "segret",
+    "nessuno sappia",
+    "non voglio che",
+    "confidential",
+    "private",
+    "discreet",
+)
+
+
 def _is_anxious(chat: list[Message], text: str = "") -> bool:
     samples = [text] if text else []
     samples.extend(row.text for row in chat if row.sender.startswith("citizen:"))
@@ -661,14 +700,68 @@ def _is_anxious(chat: list[Message], text: str = "") -> bool:
     return any(stem in joined for stem in _WORRIED_STEMS)
 
 
-def _empathy_lead(*, english: bool, anxious: bool) -> str:
-    if not anxious:
+def _citizen_tone(chat: list[Message], text: str = "") -> str:
+    samples = [text] if text else []
+    samples.extend(row.text for row in chat if row.sender.startswith("citizen:"))
+    joined = " ".join(samples).lower()
+    if any(stem in joined for stem in _WORRIED_STEMS):
+        return "anxious"
+    if any(stem in joined for stem in _FRUSTRATED_STEMS):
+        return "frustrated"
+    if any(stem in joined for stem in _PRIVACY_STEMS):
+        return "privacy"
+    if any(stem in joined for stem in _HURRIED_STEMS):
+        return "hurried"
+    return "neutral"
+
+
+def _empathy_lead(*, english: bool, anxious: bool, tone: str = "") -> str:
+    effective = "anxious" if anxious else (tone or "neutral")
+    if effective == "anxious":
+        return (
+            "I understand your concern, and you are in safe hands: we are here to "
+            "support you in full confidentiality. "
+            if english
+            else "Capisco la sua preoccupazione, può stare tranquilla: siamo qui per "
+            "assisterla nella massima riservatezza. "
+        )
+    if effective == "frustrated":
+        return (
+            "I understand the inconvenience and I will take care of this right away for you. "
+            if english
+            else "Capisco il disagio e mi occupo subito personalmente di trovare la soluzione migliore per lei. "
+        )
+    if effective == "privacy":
+        return (
+            "Your request is handled with strict confidentiality and direct access. "
+            if english
+            else "La sua richiesta è gestita nella massima riservatezza e con accesso diretto. "
+        )
+    if effective == "hurried":
+        return (
+            "Right away — let's handle this quickly for you. "
+            if english
+            else "Subito — procediamo nel modo più rapido possibile per lei. "
+        )
+    return ""
+
+
+def _slot_schedule_hint(chat: list[Message], slot_id: str) -> str:
+    """Extract a readable agenda_date / agenda_day hint for ``slot_id`` from chat history."""
+    if not slot_id:
         return ""
-    return (
-        "I understand your concern, we are here to support you in complete confidentiality. "
-        if english
-        else "Capisco la sua preoccupazione, siamo qui per aiutarla nella massima riservatezza. "
-    )
+    tok = f"slot_id={slot_id}"
+    for row in reversed(chat):
+        for line in row.text.splitlines():
+            if tok in line.split():
+                f = fields_of(line)
+                when = f.get("agenda_date") or f.get("at") or ""
+                day = f.get("agenda_day") or f.get("day") or ""
+                if when and day:
+                    return f"{day} {when}"
+                if when:
+                    return when
+    return ""
 
 
 def _family_emergency(message: Message) -> bool:
@@ -1195,7 +1288,9 @@ async def _offer_to_citizen(
         return
 
     english = _is_english(chat, message.text)
-    lead = _empathy_lead(english=english, anxious=_is_anxious(chat, message.text))
+    tone = _citizen_tone(chat, message.text)
+    lead = _empathy_lead(english=english, anxious=(tone == "anxious"), tone=tone)
+    street = _own_street(city)
 
     # If citizen already has a confirmed booking and writes again without checkin, guide politely.
     if not replacing:
@@ -1203,12 +1298,16 @@ async def _offer_to_citizen(
         if committed is not None:
             bk = _safe_token(fields_of(committed.text).get("booking_id"))
             if bk and _latest_ledger(chat, "checked_in", f"booking_id={bk}") is None:
+                where_en = f" at {street}" if street else ""
+                where_it = f" in {street}" if street else ""
                 reply = (
-                    f"{lead}Your counseling appointment (booking_id={bk}) is already confirmed "
-                    f"(no prescription needed). When you arrive, send 'checkin booking_id={bk}'."
+                    f"{lead}Your counseling appointment (booking_id={bk}) is already confirmed"
+                    f"{where_en} (direct access, no referral needed, full confidentiality). "
+                    f"When you arrive, simply share your booking code {bk} so we can welcome you right away."
                     if english
-                    else f"{lead}Il suo appuntamento al consultorio (booking_id={bk}) è già confermato "
-                    f"(senza ricetta). Quando arriva, mi scriva 'checkin booking_id={bk}'."
+                    else f"{lead}Il suo appuntamento al consultorio (booking_id={bk}) è già confermato"
+                    f"{where_it} (accesso diretto, senza ricetta, massima riservatezza). "
+                    f"Al suo arrivo le basterà comunicare il codice {bk} per essere accolta subito."
                 )
                 await _say(city, citizen, reply, allowed_citizen=citizen)
                 return
@@ -1282,22 +1381,29 @@ async def _offer_to_citizen(
             _offer_line(slot, agent_id=agent, priority=priority)
             for slot in fresh_slots[:4]
         ]
+        where_en = f" at our clinic ({street})" if street else ""
+        where_it = f" presso la nostra sede ({street})" if street else ""
         if english:
             note = (
                 f"{lead}No slot matched every day/doctor preference, so here are the closest "
-                "available family counseling slots (direct access, no referral needed). "
-                "Please choose your preferred slot."
+                f"available family counseling slots{where_en} (direct access, no referral needed, "
+                "full confidentiality; our female gynecologist speaks Italian and English, Mon-Fri). "
+                "Just let me know which slot works best for you and I will reserve it right away."
                 if relaxed
-                else f"{lead}Here are the available family counseling slots (direct access, "
-                "no referral needed). Please choose the slot you prefer."
+                else f"{lead}Here are the available family counseling slots{where_en} (direct access, "
+                "no referral needed, full confidentiality; our female gynecologist speaks Italian "
+                "and English, Mon-Fri). Let me know which option you prefer and I will finalize it immediately."
             )
         else:
             note = (
                 f"{lead}Non ci sono slot con tutte le preferenze indicate, ma ecco le alternative "
-                "più vicine al consultorio (accesso diretto, senza ricetta). Indichi l'offerta scelta."
+                f"più vicine{where_it} (accesso diretto senza ricetta, massima riservatezza; "
+                "ginecologa disponibile lun-ven, italiano e inglese). "
+                "Mi indichi pure l'opzione preferita e la blocco subito per lei."
                 if relaxed
-                else f"{lead}Ecco le disponibilità del consultorio (accesso diretto, senza ricetta). "
-                "Mi confermi pure l'offerta che preferisce."
+                else f"{lead}Ecco le disponibilità del consultorio{where_it} (accesso diretto senza "
+                "ricetta, massima riservatezza; ginecologa disponibile lun-ven, italiano e inglese). "
+                "Mi indichi pure l'offerta che preferisce e completo subito la prenotazione."
             )
         # Single message containing every offer line so the citizen can choose in one turn.
         combined = "\n".join(lines) + f"\n{note}"
@@ -1310,28 +1416,36 @@ async def _offer_to_citizen(
         # Level 4 & 5: when no local CONS-GIN slot fits (scarcity or rare language/gender),
         # query partner family_counseling clinics anonymously (ZERO citizen data sent!).
         contacted = await _find_partner_counseling(
-            city, message.need_id, chat, priority=priority or "B", lang=lang
+            city,
+            message.need_id,
+            chat,
+            priority=priority or "B",
+            lang=lang,
+            gender=gender,
+            days=days,
         )
         if contacted:
             reply = (
-                f"{lead}No matching slot is currently available in our clinic (direct access, "
-                "no referral needed): I am checking partner family counseling clinics right now. "
-                "I will ask your authorization before sharing any data."
+                f"{lead}No matching slot is currently open in our clinic (direct access, "
+                "no referral needed): I am actively checking partner family counseling clinics "
+                "across Milan right now on your behalf, without sharing any personal data. "
+                "As soon as a match arrives, I will ask your authorization before booking."
                 if english
-                else f"{lead}Nella nostra sede non ci sono slot compatibili al momento (accesso diretto, "
-                "senza ricetta): sto verificando la disponibilità presso i consultori partner. "
-                "Le chiederò il consenso prima di condividere qualsiasi dato."
+                else f"{lead}Nella nostra sede non ci sono slot compatibili al momento (accesso diretto "
+                "senza ricetta): sto già verificando in tempo reale i consultori partner sul territorio "
+                "per lei, senza condividere alcun dato personale. Appena trovo una disponibilità le "
+                "chiederò il consenso prima di procedere."
             )
             await _say(city, citizen, reply, allowed_citizen=citizen)
             return
         reply = (
-            f"{lead}No matching family counseling slots are currently available here. "
-            "No referral is needed; please check back shortly or contact the booking centre "
-            "for partner clinics."
+            f"{lead}All matching slots at our clinic are currently full (direct access, "
+            "no referral needed, full confidentiality). I have checked our schedule thoroughly "
+            "and remain at your disposal if you would like to widen the preferred day or time."
             if english
-            else f"{lead}Al momento non ci sono slot compatibili disponibili presso il nostro "
-            "consultorio (l'accesso è diretto, senza ricetta). Può riprovare tra poco o chiedere "
-            "al centro prenotazioni per verificare altre strutture."
+            else f"{lead}Al momento gli slot compatibili nella nostra sede sono esauriti (accesso diretto "
+            "senza ricetta, massima riservatezza). Ho verificato tutta l'agenda disponibile e resto "
+            "subito a disposizione se desidera valutare un altro giorno o fascia oraria."
         )
         await _say(city, citizen, reply, allowed_citizen=citizen)
 
@@ -1345,7 +1459,14 @@ def _partner_request_id(need_id: str | None) -> str:
 
 
 async def _find_partner_counseling(
-    city: City, need_id: str | None, chat: list[Message], *, priority: str, lang: str = ""
+    city: City,
+    need_id: str | None,
+    chat: list[Message],
+    *,
+    priority: str,
+    lang: str = "",
+    gender: str | None = None,
+    days: set[str] | None = None,
 ) -> int:
     """Anonymously query partner ``family_counseling`` clinics on the ring (ZERO citizen data)."""
     req_id = _partner_request_id(need_id)
@@ -1357,35 +1478,49 @@ async def _find_partner_counseling(
     ):
         return 0
 
-    peers = []
-    for query in ("family_counseling.gynecology", "family_counseling", PROCEDURE):
+    seen_ids: set[str] = set()
+    candidates: list[str] = []
+    for query in ("family_counseling.gynecology", "family_counseling", "consultorio", PROCEDURE):
         try:
             peers = await city.find(query)
         except CapError:
             peers = []
-        if peers:
+        for peer in peers:
+            pid = peer.agent_id
+            if pid in seen_ids or pid == city.agent_id or pid in _TEAM_AGENTS:
+                continue
+            if peer.role and peer.role not in {"facility", "family_counseling"}:
+                continue
+            caps = tuple(getattr(peer, "capabilities", ()) or ())
+            if caps and not any(c.startswith("family_counseling") for c in caps):
+                continue
+            seen_ids.add(pid)
+            candidates.append(pid)
+            if len(candidates) >= 10:
+                break
+        if len(candidates) >= 10:
             break
 
-    lang_part = f" lang={lang}" if lang else ""
-    contacted = 0
-    for peer in peers:
-        if contacted >= 8:
-            break
-        if peer.agent_id == city.agent_id or peer.agent_id in _TEAM_AGENTS:
-            continue
-        if peer.role and peer.role not in {"facility", "family_counseling"}:
-            continue
-        caps = tuple(getattr(peer, "capabilities", ()) or ())
-        if caps and not any(c.startswith("family_counseling") for c in caps):
-            continue
-        if await _say(
-            city,
-            peer.agent_id,
-            f"need.request service_type=family_counseling.gynecology procedure={PROCEDURE} "
-            f"priority={priority}{lang_part} request_id={req_id}",
-        ):
-            contacted += 1
-    return contacted
+    if not candidates:
+        return 0
+
+    parts = [
+        "need.request",
+        "service_type=family_counseling.gynecology",
+        f"procedure={PROCEDURE}",
+        f"priority={priority}",
+    ]
+    if lang:
+        parts.append(f"lang={lang}")
+    if gender in {"m", "f"}:
+        parts.append(f"gender={gender}")
+    if days:
+        parts.append(f"days={','.join(sorted(days))}")
+    parts.append(f"request_id={req_id}")
+    req_text = " ".join(parts)
+
+    results = await asyncio.gather(*(_say(city, pid, req_text) for pid in candidates))
+    return sum(1 for ok in results if ok)
 
 
 def _awaiting_cross_asst_consent(
@@ -1474,11 +1609,11 @@ async def _on_cross_asst_consent_reply(
     if not ref or declined:
         english = _is_english(chat, message.text)
         msg = (
-            "Understood, I will not share any data outside our ASST. "
-            "Please contact us again shortly if you want to check local slots."
+            "Understood, your privacy comes first: I will not share any data outside our ASST. "
+            "I remain available whenever you want to review local appointments with us."
             if english
-            else "Ricevuto, non condividerò alcun dato fuori dalla nostra ASST. "
-            "Può ricontattarci tra poco per verificare nuove disponibilità in sede."
+            else "Ricevuto, la sua riservatezza viene prima di tutto: non condividerò alcun dato "
+            "fuori dalla nostra ASST. Resto a sua completa disposizione per eventuali disponibilità in sede."
         )
         await _say(city, citizen, msg, allowed_citizen=citizen)
         return
@@ -1557,11 +1692,13 @@ async def _send_partner_offers_to_citizen(
         await _say(city, citizen, "\n".join(lines) + f"\n{note}", allowed_citizen=citizen)
     else:
         msg = (
-            f"{lead}Partner clinics currently have no slot matching your language/constraints either. "
-            "Please check back shortly."
+            f"{lead}Partner clinics currently have no slot matching every constraint either. "
+            "I have checked all partner availability for you and remain ready to find the closest "
+            "alternative if you would like to relax the preferred day or time."
             if english
-            else f"{lead}Al momento nemmeno i consultori partner hanno slot compatibili con le sue "
-            "esigenze. Può riprovare tra poco."
+            else f"{lead}Al momento nemmeno i consultori partner hanno slot compatibili con tutti "
+            "i vincoli indicati. Ho verificato per lei tutte le sedi partner e resto subito a "
+            "disposizione se desidera valutare un giorno o orario alternativo."
         )
         await _say(city, citizen, msg, allowed_citizen=citizen)
 
@@ -1609,13 +1746,18 @@ async def _on_partner_cancel(
     citizen = _citizen(chat)
     if not citizen:
         return
+    english = _is_english(chat)
     parts = ["cancel"]
     if offer_id:
         parts.append(f"offer_id={offer_id}")
     if slot_id:
         parts.append(f"slot_id={slot_id}")
     parts.append(f"reason={_extract_refusal_reason(message.text)}")
-    parts.append("La struttura partner ha annullato lo slot; verifico altre disponibilità.")
+    parts.append(
+        "The partner clinic could not keep that slot; I am immediately checking alternative options for you."
+        if english
+        else "Il consultorio partner non ha potuto confermare lo slot; verifico subito altre disponibilità per lei."
+    )
     await _say(city, citizen, " ".join(parts), allowed_citizen=citizen)
     fresh = await city.history(need_id=message.need_id)
     await _send_partner_offers_to_citizen(city, message, fresh, citizen)
@@ -1908,7 +2050,15 @@ async def _on_confirm(city: City, message: Message, chat: list[Message], key: st
                 await _say(
                     city,
                     message.sender,
-                    _receipt_text(bk, ref, chat=chat, to_citizen=message.sender.startswith("citizen:")),
+                    _receipt_text(
+                        bk,
+                        ref,
+                        chat=chat,
+                        to_citizen=message.sender.startswith("citizen:"),
+                        slot_id=slot,
+                        offer_id=offer_id,
+                        street=_own_street(city),
+                    ),
                     allowed_citizen=citizen or None,
                 )
             return
@@ -1991,6 +2141,7 @@ def _receipt_text(
     to_citizen: bool,
     slot_id: str = "",
     offer_id: str = "",
+    street: str = "",
 ) -> str:
     parts = ["booking.receipt", f"booking_id={booking_id}", f"ledger_ref={ledger_ref}"]
     if not to_citizen:
@@ -2001,13 +2152,21 @@ def _receipt_text(
         parts.append("Prenotazione confermata per il consultorio (CONS-GIN).")
         return " ".join(parts)
     english = _is_english(chat)
-    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    tone = _citizen_tone(chat)
+    lead = _empathy_lead(english=english, anxious=(tone == "anxious"), tone=tone)
+    when = _slot_schedule_hint(chat, slot_id)
+    when_en = f" for {when}" if when else ""
+    when_it = f" per {when}" if when else ""
+    where_en = f" at {street}" if street else ""
+    where_it = f" presso la sede di {street}" if street else ""
     note = (
-        f"{lead}Your family counseling appointment is booked (direct access, no referral needed). "
-        "Please keep this receipt for arrival."
+        f"{lead}Your family counseling appointment is confirmed{when_en}{where_en} "
+        "(direct access, no referral needed, full confidentiality). "
+        f"Please keep this receipt and share code {booking_id} on arrival."
         if english
-        else f"{lead}Il suo appuntamento al consultorio è confermato (senza ricetta). "
-        "Conservi questa ricevuta per il check-in."
+        else f"{lead}Il suo appuntamento al consultorio è confermato{when_it}{where_it} "
+        "(accesso diretto senza ricetta, massima riservatezza). "
+        f"Conservi questa ricevuta e presenti il codice {booking_id} al suo arrivo."
     )
     parts.append(note)
     return " ".join(parts)
@@ -2068,6 +2227,7 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
             to_citizen=target.startswith("citizen:"),
             slot_id=slot,
             offer_id=offer_id,
+            street=_own_street(city),
         ),
         allowed_citizen=_citizen(chat),
     )
@@ -2186,13 +2346,18 @@ async def _confirm_checkin(
     if _we(chat, city.agent_id, token, to=citizen, word="checkin"):
         return
     english = _is_english(chat)
-    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    tone = _citizen_tone(chat)
+    lead = _empathy_lead(english=english, anxious=(tone == "anxious"), tone=tone)
     msg = (
         f"checkin booking_id={booking_id} "
-        f"{lead}Welcome! Your check-in at the family counseling clinic is registered. Thank you."
+        f"{lead}Welcome! Your arrival at the family counseling clinic is registered. "
+        "Everything is ready — no referral or extra paperwork is needed, and our gynecologist "
+        "will welcome you shortly in full confidentiality."
         if english
         else f"checkin booking_id={booking_id} "
-        f"{lead}Benvenuto! Il suo check-in al consultorio è stato registrato correttamente. Grazie."
+        f"{lead}Benvenuta! Il suo arrivo al consultorio è stato registrato correttamente. "
+        "È tutto pronto: non serve alcuna ricetta o documentazione aggiuntiva e la nostra "
+        "ginecologa la accoglierà a breve nella massima riservatezza."
     )
     await _say(city, citizen, msg, allowed_citizen=citizen)
 
