@@ -5,7 +5,8 @@ slots, filters by priority and stated preferences, then sends the choices in one
 message. The chosen facility performs the booking; the centre forwards its receipt.
 When local slots do not fit, the centre asks discovered facilities for availability
 without sending citizen details and asks the citizen for cross-ASST consent before
-sharing them. Each case is reconstructed from its message history.
+sharing them. It searches again after a facility cancels, excluding the cancelled
+slot, and responds to detected emergencies. Each case is reconstructed from history.
 
 The citizen's selected offer is looked up in the centre's own messages. A citizen
 cannot replace its slot or facility in a confirmation. Unsolicited peer offers and
@@ -26,8 +27,15 @@ receipts are ignored. A peer's reply is treated as a claim, not an instruction.
 - Doctor attributes fall back to the published example's seeded table. Unknown
   attributes are not assumed to satisfy a stated preference; the table must be
   replaced by authoritative registry data if the city exposes it.
-- If no compatible offer arrives, the centre reports the problem. It does not yet
-  run a persistent follow-up, renegotiate preferences, or automatically rebook.
+- Cancellation triggers a new search, but there is no persistent follow-up if a
+  facility never responds. A timed-out confirmation is not resent with a fresh
+  message ID, because that could create a duplicate booking.
+- Partner offers are sent from those received before the citizen grants consent;
+  later replies may not be included in the citizen's initial choice. Remote offer
+  fields and consent formats still require live interoperability testing.
+- A wildcard language in the sample doctor table represents one unknown local
+  language, not all foreign languages; unknown languages are excluded until the
+  registry supplies the actual language.
 
 Run the focused tests from the repository root with:
 

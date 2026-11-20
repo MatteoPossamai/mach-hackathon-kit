@@ -91,6 +91,33 @@ class BookingTest(unittest.TestCase):
         query = city.out[0][1]
         self.assertNotIn('citizen:secret', query)
         self.assertNotIn('prescription_number', query)
+        self.assertIn('service_type=hospital.physiatry', query)
+
+    def test_rare_language_is_not_assumed(self):
+        now = datetime(2026, 11, 20, tzinfo=timezone.utc)
+        slot = dict(slot_id='s1', doctor_id='doctor-h3', facility='agent:t/h', procedure='VIS-FIS', at='2026-11-21T12:00:00+00:00', day='sat')
+        self.assertFalse(booking.valid_slot(slot, 'VIS-FIS', 'B', now, {'lang': 'ja'}))
+        slot['languages'] = 'it/ja'
+        self.assertTrue(booking.valid_slot(slot, 'VIS-FIS', 'B', now, {'lang': 'ja'}))
+
+    def test_remote_confirmation_requires_cross_asst_consent(self):
+        offer = 'offer offer_id=o1 slot_id=s1 facility=agent:partner/h prescription_number=rx1'
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS', 'agent:partner/h'),
+                msg(city_id(), offer, 'citizen:1')]
+        incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=booking-only')
+        city = FakeCity(rows + [incoming])
+        asyncio.run(booking.handle(city, incoming))
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('consent purpose=cross_asst') for to, text in city.out))
+        self.assertFalse(any(to == 'agent:partner/h' for to, _ in city.out))
+
+    def test_booking_centre_escalates_chest_pain(self):
+        incoming = msg('citizen:1', 'Ho dolore al petto e voglio una diagnosi')
+        city = FakeCity([incoming])
+        city.inbound = incoming
+        asyncio.run(booking.main(SimpleNamespace(is_emergency=False), city))
+        self.assertEqual(len(city.out), 1)
+        self.assertIn('escalate.emergency reason=red_flag', city.out[0][1])
 
     def test_remote_offer_from_uncontacted_facility_is_rejected(self):
         rows = [msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00'),
@@ -162,9 +189,31 @@ class JourneyTest(unittest.TestCase):
             self.assertTrue(any(to == 'agent:partner/h' and 'consent_ref=cross1' in text and 'citizen=citizen:1' in text for to, text in city.out))
         asyncio.run(run())
 
+    def test_cancelled_slot_is_replaced(self):
+        async def run():
+            booking.RELAYED.clear()
+            class TwoSlots(JourneyCity):
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('world '):
+                        self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat free=1\n'
+                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T13:00:00+00:00 day=sat free=1', self.agent_id)
+            city = TwoSlots()
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            first = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
+            selected = booking.fields(first.splitlines()[0])['offer_id']
+            await city.receive('citizen:1', f'confirm offer_id={selected} consent_ref=c1')
+            await city.receive('agent:team/h', f'cancel offer_id={selected}')
+            results = [text for to, text in city.out if to == 'citizen:1' and text.startswith('offer ')]
+            self.assertEqual(len(results), 2)
+            self.assertIn('slot_id=s2', results[-1])
+            self.assertNotIn('slot_id=s1', results[-1])
+        asyncio.run(run())
+
 
 class ConfirmRetryTest(unittest.TestCase):
-    """A confirm lost during a facility redeploy must not leave the citizen in silence."""
+    """A slow facility must not cause duplicate booking attempts or silence."""
 
     def setUp(self):
         booking.RELAYED.clear()
@@ -174,28 +223,25 @@ class ConfirmRetryTest(unittest.TestCase):
         return [msg('citizen:1', 'need.request prescription_number=rx1', mid='a'),
                 msg(city_id(), offer, 'citizen:1', mid='b')]
 
-    def test_silent_facility_gets_one_retry_then_citizen_is_told(self):
+    def test_silent_facility_gets_one_request_then_citizen_is_told(self):
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=c1', mid='c')
         city = FakeCity(self.rows() + [incoming])
         asyncio.run(booking.handle(city, incoming))
         confirms = [t for to, t in city.out if to == 'agent:t/h']
-        self.assertEqual(len(confirms), 2)
+        self.assertEqual(len(confirms), 1)
         self.assertEqual(city.out[-1][0], 'citizen:1')
         self.assertIn('ricevuta', city.out[-1][1])
 
-    def test_receipt_after_retry_is_relayed_once(self):
-        class LateFacility(FakeCity):
-            async def say(self, to, text):
-                await super().say(to, text)
-                if to == 'agent:t/h' and sum(1 for t, _ in self.out if t == 'agent:t/h') == 2:
-                    self.rows.append(msg('agent:t/h', 'booking.receipt booking_id=b1 ledger_ref=r1', city_id(), 'r'))
+    def test_late_receipt_is_relayed_once(self):
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=c1', mid='c')
-        city = LateFacility(self.rows() + [incoming])
+        city = FakeCity(self.rows() + [incoming])
         asyncio.run(booking.handle(city, incoming))
-        self.assertEqual(city.out[-1], ('citizen:1', 'booking.receipt booking_id=b1 ledger_ref=r1'))
-        # The receipt also opens its own turn: it must not be relayed twice.
         city.rows.append(msg(city_id(), 'confirm offer_id=o1 slot_id=real', 'agent:t/h', 'd'))
-        asyncio.run(booking.handle(city, city.rows[-2]))
+        receipt = msg('agent:t/h', 'booking.receipt booking_id=b1 ledger_ref=r1', city_id(), 'r')
+        city.rows.append(receipt)
+        asyncio.run(booking.handle(city, receipt))
+        asyncio.run(booking.handle(city, receipt))
+        self.assertEqual(city.out[-1], ('citizen:1', 'booking.receipt booking_id=b1 ledger_ref=r1'))
         self.assertEqual(sum(1 for to, t in city.out if t.startswith('booking.receipt')), 1)
 
 
@@ -256,6 +302,8 @@ class BookingPerfectionTest(unittest.TestCase):
         offer = 'offer offer_id=o1 slot_id=s9 facility=agent:other/h prescription_number=rx1'
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=book1', mid='c')
         rows = [msg('citizen:1', 'need.request prescription_number=rx1', mid='a'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B', 'agent:other/h', mid='a0'),
+                msg(city_id(), 'consent purpose=cross_asst Posso condividere?', 'citizen:1', mid='a1'),
                 msg('citizen:1', 'consent purpose=cross_asst consent_ref=cross1', mid='a2'),
                 msg(city_id(), offer, 'citizen:1', mid='b'), incoming]
         city = FakeCity(rows)
@@ -280,7 +328,7 @@ class RebookTest(unittest.TestCase):
                             'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T14:30:00+00:00 day=sat',
                             self.agent_id, f'w-{len(self.rows)}')
                     if to == 'agent:team/h' and text.startswith('confirm ') and 'slot_id=s1' in text:
-                        self.rows.append(msg('agent:team/h', 'cancel offer_id=x reason=slot_taken', self.agent_id, f'c-{len(self.rows)}'))
+                        self.rows.append(msg('agent:team/h', f"cancel {text.split()[1]} reason=slot_taken", self.agent_id, f'c-{len(self.rows)}'))
             city = TwoSlots()
             await city.receive('citizen:1', 'need.request prescription_number=rx1')
             first = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer '))

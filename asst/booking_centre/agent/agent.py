@@ -11,7 +11,7 @@ import json
 import re
 from datetime import datetime, timedelta
 
-from city_sdk.city import LEDGER, CapError, City, Need, clinical, OutOfScope
+from city_sdk.city import LEDGER, CapError, City, Need, clinical, OutOfScope, understood
 
 TOKEN = re.compile(r"^[A-Za-z0-9_.:/+\-]{1,128}$")
 LOCKS: dict[str, asyncio.Lock] = {}
@@ -22,6 +22,7 @@ RX_IN_TEXT = re.compile(r"prescription_number-[A-Za-z0-9-]{4,60}")
 SOFT_PREFS = ("gender", "gender_preference", "days")
 LLM_TIMEOUT = 8.0
 DAY_CODES = ("mon", "tue", "wed", "thu", "fri")
+SERVICES = {"VIS-FIS": "hospital.physiatry", "VIS-CARD": "specialist_care.cardiology"}
 PREFS_PROMPT = (
     "Extract the booking preferences a citizen states in the messages below. Reply with one "
     'JSON object only: {"lang": "", "gender": "", "days": ""}. lang = ISO code of the language '
@@ -291,7 +292,8 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
         return False
     if prefs.get("lang"):
         languages = item.get("languages", known_languages).split("/")
-        if prefs["lang"] not in languages and not ("*" in languages and prefs["lang"] not in {"it", "en"}):
+        # The '*' in the example is one ASST-specific language, not every language.
+        if prefs["lang"] not in languages:
             return False
     return True
 
@@ -300,7 +302,8 @@ def offer_line(item: dict[str, str], number: str = "", priority: str = "") -> st
     """One compact offer: short lines let more choices fit in the single offer message."""
 
     slot = item["slot_id"]
-    oid = "of-" + hashlib.sha256((item["facility"] + ":" + slot).encode()).hexdigest()[:16]
+    # A partner may require its own offer identifier in the later confirmation.
+    oid = item.get("offer_id") or "of-" + hashlib.sha256((item["facility"] + ":" + slot).encode()).hexdigest()[:16]
     line = (f"offer offer_id={oid} slot_id={slot} doctor_id={item['doctor_id']} "
             f"facility={item['facility']} procedure={item.get('procedure', '')} "
             f"agenda_date={item.get('at', item.get('agenda_date', ''))} "
@@ -380,6 +383,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
     now = time(fields(agenda.text).get("agenda_now", ""))
+    owner = prescription.get("patient") or prescription.get("citizen")
+    if owner and owner != citizen:
+        await send(city, citizen, "Non riesco a verificare che questa ricetta sia la sua. Ci contatti per assistenza.")
+        return
     if prescription.get("state") != "issued" or not procedure or priority not in {"U", "B", "D", "P"} or not now:
         await send(city, citizen, "data.request purpose=prescription_renewal fields=prescription_number "
                    + ("The prescription cannot be used: please ask your GP to check or renew it." if english
@@ -408,8 +415,24 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         page_info = fields(response.text.splitlines()[0]).get("page", "1/1").split("/")
         if len(page_info) != 2 or not page_info[1].isdigit() or page >= int(page_info[1]):
             break
+    # Do not reoffer a slot that the responsible facility cancelled in this case.
+    previous_offers = offers(history, city.agent_id, citizen)
+    cancelled = set()
+    for row in history:
+        if act(row.text) != "cancel" or not row.sender.startswith("agent:"):
+            continue
+        prior = previous_offers.get(fields(row.text).get("offer_id", ""))
+        if not prior and not fields(row.text).get("offer_id"):
+            prior = next((fields(m.text) for m in reversed(history)
+                          if m.sender == city.agent_id and m.recipient == row.sender
+                          and act(m.text) == "confirm"), None)
+            if prior:
+                prior["facility"] = row.sender
+        if prior and prior.get("facility") == row.sender:
+            cancelled.add(prior.get("slot_id"))
     items = [enrich(item, doctors) for item in items
-             if item.get("slot_id") not in exclude and item.get("facility") not in exclude]
+             if item.get("slot_id") not in exclude and item.get("facility") not in exclude
+             and item.get("slot_id") not in cancelled]
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
     if not candidates:
         await find_partners(city, need_id, citizen, procedure, priority, history)
@@ -486,7 +509,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         caps = tuple(getattr(peer, "capabilities", ()) or ())
         if capability and caps and capability not in caps:
             continue
-        if await send(city, peer.agent_id, f"need.request service_type={procedure} procedure={procedure} priority={priority} request_id={request_id}"):
+        if await send(city, peer.agent_id, f"need.request service_type={capability or procedure} procedure={procedure} priority={priority} request_id={request_id}"):
             contacted += 1
     if contacted:
         await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
@@ -511,6 +534,14 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
     if not now or not number or prescription.get("state") != "issued":
         return
     candidates = []
+    prefs = await citizen_preferences(city, history, citizen)
+    cancelled = set()
+    previous_offers = offers(history, city.agent_id, citizen)
+    for row in history:
+        if act(row.text) == "cancel" and row.sender.startswith("agent:"):
+            prior = previous_offers.get(fields(row.text).get("offer_id", ""))
+            if prior and prior.get("facility") == row.sender:
+                cancelled.add(prior.get("slot_id"))
     for row in history:
         if not row.sender.startswith("agent:") or act(row.text) != "offer":
             continue
@@ -524,7 +555,7 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             continue
         if item.get("facility") != row.sender:
             continue
-        if valid_slot(item, procedure, priority, now, preferences(history, citizen), assume_known=False):
+        if item.get("slot_id") not in cancelled and valid_slot(item, procedure, priority, now, prefs, assume_known=False):
             candidates.append(item)
     lines = []
     for item in candidates:
@@ -538,9 +569,8 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
         await send(city, citizen, "Non riesco ancora a verificare un'offerta adatta. Continueremo a cercare.")
 
 
-# A confirm can be lost while a facility is being redeployed: wait for its answer, retry once
-# (retries on a timeout are allowed; the facility does not hold the same slot twice), and never
-# leave the citizen without a word.
+# A lost response is not evidence that the booking failed. A second city.say
+# creates a new message id, so do not risk a duplicate booking on timeout.
 RECEIPT_WAIT = 15.0
 # Facility answers already relayed by this process, so a queued turn does not repeat them.
 RELAYED: set[str] = set()
@@ -596,27 +626,33 @@ def confirmed_slot(history: list, agent: str, facility: str) -> str:
     return ""
 
 
-async def relay_facility_reply(city: City, need_id: str, history: list, citizen: str, row) -> None:
+async def relay_facility_reply(city: City, need_id: str, history: list, citizen: str, row) -> bool:
     data = fields(row.text)
+    confirmation = next((fields(m.text) for m in reversed(history)
+                         if m.sender == city.agent_id and m.recipient == row.sender
+                         and act(m.text) == "confirm"), None)
+    if confirmation and data.get("offer_id") and data["offer_id"] != confirmation.get("offer_id"):
+        return False
     if act(row.text) == "booking.receipt":
         if not data.get("booking_id") or not data.get("ledger_ref"):
-            return
+            return False
         key = f"{need_id}:receipt:{data['booking_id']}"
         if key in RELAYED or sent(history, city.agent_id, citizen, f"booking.receipt booking_id={data['booking_id']}"):
-            return
-        RELAYED.add(key)
-        await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}")
-        return
+            return False
+        if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}"):
+            RELAYED.add(key)
+            return True
+        return False
     key = f"{need_id}:cancel:{data.get('offer_id', '')}:{row.msg_id}"
     if key in RELAYED:
-        return
-    RELAYED.add(key)
+        return False
     english = writes_english(history, citizen)
-    await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled "
-               + ("The facility cancelled this slot; I am looking for an alternative." if english
-                  else "La struttura ha annullato questo posto; cerco subito un'alternativa."))
-    slot = data.get("slot_id") or confirmed_slot(history, city.agent_id, row.sender)
-    await rebook(city, need_id, citizen, frozenset({slot} if slot else set()))
+    if await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled "
+                  + ("The facility cancelled this slot; I am looking for an alternative." if english
+                     else "La struttura ha annullato questo posto; cerco subito un'alternativa.")):
+        RELAYED.add(key)
+        return True
+    return False
 
 
 async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str,
@@ -644,12 +680,16 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         await rebook(city, need_id, citizen, frozenset({selected["slot_id"], facility}))
         return
     history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
-    if not answered(history):
+    if not answered(history) and facility in TEAM_AGENTS:
+        # Only our own facilities: they skip a hold already made and never commit twice, so a
+        # confirm lost in a redeploy can be repeated safely. A partner's may not be idempotent.
         await send(city, facility, text)
         history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
     reply = facility_reply(history, facility, seen)
     if reply is not None:
-        await relay_facility_reply(city, need_id, history, citizen, reply)
+        forwarded = await relay_facility_reply(city, need_id, history, citizen, reply)
+        if forwarded and act(reply.text) == "cancel":
+            await rebook(city, need_id, citizen, frozenset({selected["slot_id"]}))
     elif not sent(history, city.agent_id, citizen, "La struttura non ha ancora confermato"):
         await send(city, citizen, PENDING_NOTE)
 
@@ -657,6 +697,11 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
 async def main(need: Need, city: City) -> None:
     incoming = city.inbound
     if incoming is None or not incoming.need_id:
+        return
+    if incoming.sender.startswith("citizen:") and (getattr(need, "is_emergency", False) or is_red_flag(incoming)):
+        history = await city.history(need_id=incoming.need_id)
+        if not sent(history, city.agent_id, incoming.sender, "escalate.emergency"):
+            await send(city, incoming.sender, "escalate.emergency reason=red_flag Capisco la sua preoccupazione. Chiami subito il 112 per ricevere assistenza.")
         return
     if incoming.sender.startswith("citizen:") and clinical(incoming.text):
         raise OutOfScope()
@@ -671,51 +716,86 @@ async def main(need: Need, city: City) -> None:
                 LOCKS.pop(key, None)
 
 
+def is_red_flag(message) -> bool:
+    if understood(message).body.get("is_emergency") is True:
+        return True
+    text = message.text.lower()
+    for match in re.finditer(r"dolore\s+(?:al|nel)\s+(?:petto|torace)|chest pain|non sento le gambe|perdita di forza alle gambe", text):
+        prefix = text[max(0, match.start() - 24):match.start()]
+        if not re.search(r"\b(?:non\s+(?:ho|sento|avverto)|senza|nessun[ao]?|no|without)\s+(?:un\s+|forte\s+)?$", prefix):
+            return True
+    return False
+
+
+def cross_consent(history: list, agent: str, citizen: str) -> str:
+    if not sent(history, agent, citizen, "consent purpose=cross_asst"):
+        return ""
+    return next((fields(row.text).get("consent_ref", "") for row in reversed(history)
+                 if row.sender == citizen and act(row.text) == "consent"
+                 and fields(row.text).get("purpose") == "cross_asst"), "")
+
+
 async def handle(city: City, message) -> None:
     history = await city.history(need_id=message.need_id)
     citizen = citizen_of(history)
     if not citizen:
         return
     data = fields(message.text)
-    kind = act(message.text)
+    kind = understood(message).type
     if message.sender == citizen:
         if kind == "confirm":
             selected = offers(history, city.agent_id, citizen).get(data.get("offer_id", ""))
+            if selected and selected.get("waiting_list") == "true":
+                await send(city, citizen, "Ha scelto l'opzione di lista d'attesa.")
+                return
             if not selected or not selected.get("slot_id"):
                 await send(city, citizen, "Non riconosco questa scelta. Scelga una delle offerte ricevute.")
                 return
             facility = selected["facility"]
-            consent = data.get("consent_ref", "")
-            cross = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
-                          if row.sender == citizen and act(row.text) == "consent"
-                          and fields(row.text).get("purpose") == "cross_asst"), "")
-            if not consent:
-                consent = cross
-            if not consent:
-                await send(city, citizen, "consent purpose=booking Posso procedere con la prenotazione scelta?")
+            remote = sent(history, city.agent_id, facility, "need.request ")
+            cross = cross_consent(history, city.agent_id, citizen) if remote else ""
+            consent = data.get("consent_ref", "") or cross
+            if not consent or (remote and not cross):
+                purpose = "cross_asst" if remote else "booking"
+                await send(city, citizen, f"consent purpose={purpose} Posso procedere con la prenotazione scelta? / May I proceed with the booking you chose?")
                 return
             if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
                 await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
             return
         if kind == "consent" and data.get("consent_ref"):
             if data.get("purpose") == "cross_asst" and sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
-                await remote_offers(city, message.need_id, history, citizen)
-            elif sent(history, city.agent_id, citizen, "consent purpose=booking"):
+                choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
+                               if row.sender == citizen and understood(row).type == "confirm"), "")
+                selected = offers(history, city.agent_id, citizen).get(choice)
+                if selected and selected.get("slot_id") and sent(history, city.agent_id, selected.get("facility", ""), "need.request "):
+                    booking_consent = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
+                                            if row.sender == citizen and act(row.text) == "confirm"), "")
+                    await confirm_at_facility(city, message.need_id, citizen, selected,
+                                              booking_consent or data["consent_ref"], data["consent_ref"])
+                else:
+                    await remote_offers(city, message.need_id, history, citizen)
+            elif data.get("purpose") in {"", "booking"} and sent(history, city.agent_id, citizen, "consent purpose=booking"):
                 # Resume the last genuine citizen choice with this consent, not data
                 # supplied by a peer or a new slot embedded in the consent response.
                 choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
                                if row.sender == citizen and act(row.text) == "confirm"), "")
                 selected = offers(history, city.agent_id, citizen).get(choice)
                 if selected and selected.get("slot_id"):
-                    await confirm_at_facility(city, message.need_id, citizen, selected, data["consent_ref"])
+                    cross = cross_consent(history, city.agent_id, citizen)
+                    await confirm_at_facility(city, message.need_id, citizen, selected, data["consent_ref"], cross)
             return
         number = data.get("prescription_number", "")
         if not number and message.type != "chat":
             raw_number = message.body.get("prescription_number")
+            if not raw_number and isinstance(message.body.get("provided"), dict):
+                raw_number = message.body["provided"].get("prescription_number")
             number = raw_number if isinstance(raw_number, str) else ""
         if not number:
             # The number written in free text, e.g. "la ricetta è prescription_number-N-...".
             number = rx_from_text(history, citizen, message.text)
+        if not number and kind == "data.response":
+            number = next((fields(row.text).get("prescription_number", "") for row in reversed(history)
+                           if row.sender == citizen and fields(row.text).get("prescription_number")), "")
         if number and TOKEN.fullmatch(number):
             await search(city, message.need_id, history, citizen, number)
         elif kind not in {"consent", "data.response"}:
@@ -726,7 +806,10 @@ async def handle(city: City, message) -> None:
         requested = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "need.request" for row in history)
         confirmed = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "confirm" for row in history)
         if kind in {"booking.receipt", "cancel"} and confirmed:
-            await relay_facility_reply(city, message.need_id, history, citizen, message)
+            forwarded = await relay_facility_reply(city, message.need_id, history, citizen, message)
+            if forwarded and kind == "cancel":
+                slot = data.get("slot_id") or confirmed_slot(history, city.agent_id, message.sender)
+                await rebook(city, message.need_id, citizen, frozenset({slot} if slot else set()))
         elif kind == "offer" and requested:
             # The remote facility's claim is not a Ledger-verified local slot. Ask for
             # consent first; never treat a peer's text as authority to disclose data.
