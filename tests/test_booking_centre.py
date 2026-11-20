@@ -342,5 +342,39 @@ class RebookTest(unittest.TestCase):
         asyncio.run(run())
 
 
+
+class LateConfirmTest(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.REBOOKS.clear()
+
+    def test_confirm_resent_after_the_slot_passed_gets_new_offers(self):
+        async def run():
+            class Clock(JourneyCity):
+                late = False
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('world '):
+                        self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-20T12:00:00+00:00 day=fri\n'
+                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T14:30:00+00:00 day=sat',
+                            self.agent_id, f'w-{len(self.rows)}')
+                    if self.late and to == 'city:ledger' and text == 'agenda':
+                        self.rows[-1] = msg('city:ledger', 'agenda agenda_now=2026-11-20T13:00:00+00:00', self.agent_id, f'a-{len(self.rows)}')
+            city = Clock()
+            await city.receive('citizen:1', 'need.request prescription_number=rx1')
+            first = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer '))
+            o1 = booking.fields(next(l for l in first.splitlines() if 'slot_id=s1' in l))['offer_id']
+            city.late = True
+            await city.receive('citizen:1', f'confirm offer_id={o1} consent_ref=c1')
+            self.assertFalse(any(to == 'agent:team/h' for to, t in city.out))
+            self.assertTrue(any(t.startswith(f'cancel offer_id={o1} reason=slot_expired') for to, t in city.out))
+            again = [t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ')]
+            self.assertEqual(len(again), 2)
+            self.assertIn('slot_id=s2', again[1])
+            self.assertNotIn('slot_id=s1', again[1])
+        asyncio.run(run())
+
+
 if __name__ == '__main__':
     unittest.main()

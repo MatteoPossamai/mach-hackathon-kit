@@ -373,7 +373,15 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     await send(city, LEDGER, "agenda")
     await send(city, LEDGER, "rules")
     match = ("prescription_number", number)
-    history = await wait_for(city, need_id, lambda h: fresh_reply(h, seen, "prescription", match) is not None and fresh_reply(h, seen, "agenda") is not None)
+    ready = lambda h: fresh_reply(h, seen, "prescription", match) is not None and fresh_reply(h, seen, "agenda") is not None
+    history = await wait_for(city, need_id, ready, LEDGER_WAIT)
+    if not ready(history):
+        # A slow Ledger is a timeout, not a refusal: asking once more is allowed.
+        if fresh_reply(history, seen, "prescription", match) is None:
+            await send(city, LEDGER, f"prescription prescription_number={number}")
+        if fresh_reply(history, seen, "agenda") is None:
+            await send(city, LEDGER, "agenda")
+        history = await wait_for(city, need_id, ready, LEDGER_WAIT)
     rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
     agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
     if not rx or not agenda:
@@ -572,6 +580,7 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
 # A lost response is not evidence that the booking failed. A second city.say
 # creates a new message id, so do not risk a duplicate booking on timeout.
 RECEIPT_WAIT = 15.0
+LEDGER_WAIT = 10.0
 # Facility answers already relayed by this process, so a queued turn does not repeat them.
 RELAYED: set[str] = set()
 PENDING_NOTE = (
@@ -653,6 +662,20 @@ async def relay_facility_reply(city: City, need_id: str, history: list, citizen:
         RELAYED.add(key)
         return True
     return False
+
+
+async def slot_expired(city: City, need_id: str, history: list, selected: dict[str, str]) -> bool:
+    """True when the agenda has already reached the chosen slot (a confirm resent after 16 minutes)."""
+
+    at = time(selected.get("agenda_date", selected.get("at", "")))
+    if not at:
+        return False
+    seen = {row.msg_id for row in history}
+    await send(city, LEDGER, "agenda")
+    fresh = await wait_for(city, need_id, lambda h: fresh_reply(h, seen, "agenda") is not None, 4.0)
+    agenda = fresh_reply(fresh, seen, "agenda")
+    now = time(fields(agenda.text).get("agenda_now", "")) if agenda else None
+    return bool(now and at.tzinfo and now.tzinfo and at <= now + timedelta(minutes=30))
 
 
 async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str,
@@ -760,6 +783,12 @@ async def handle(city: City, message) -> None:
                 await send(city, citizen, f"consent purpose={purpose} Posso procedere con la prenotazione scelta? / May I proceed with the booking you chose?")
                 return
             if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
+                if await slot_expired(city, message.need_id, history, selected):
+                    english = writes_english(history, citizen)
+                    await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=slot_expired "
+                               + ("This slot has already passed." if english else "Questo posto è ormai passato."))
+                    await rebook(city, message.need_id, citizen, frozenset({selected["slot_id"]}))
+                    return
                 await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
             return
         if kind == "consent" and data.get("consent_ref"):
