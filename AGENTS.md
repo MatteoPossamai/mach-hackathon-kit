@@ -61,3 +61,7 @@ Regia La vostra squadra Un cittadino ha trovato vuoto un medico di base, un cent
 ## Collaboration
 
 If we want to carry on and get more stuff done, then we should try to be proactive and be collaborative with other teams. This is what we try to achieve. Can you help?
+
+## Presentation
+
+There is a presentation with the Cola...pdf file.
