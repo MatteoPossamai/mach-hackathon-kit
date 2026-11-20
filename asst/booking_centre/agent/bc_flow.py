@@ -104,7 +104,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     if not candidates:
         await find_partners(city, need_id, citizen, procedure, priority, history)
         return
-    note = (OFFER_NOTE_RELAXED_EN if relaxed else OFFER_NOTE_EN) if english else (OFFER_NOTE_RELAXED if relaxed else OFFER_NOTE)
+    note = offer_note(prefs, relaxed, english)
     if lead:
         note = lead + " " + note
     # Keep a single message: the citizen chooses within the turn of this one message.
@@ -198,6 +198,9 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
 # A lost response is not evidence that the booking failed. A second city.say
 # creates a new message id, so do not risk a duplicate booking on timeout.
 RECEIPT_WAIT = 15.0
+# Facilities that ignore a message without an act word. The specialist answers any agent
+# message with availability (or a cancel), so it must not receive the ack.
+ACK_FACILITIES = frozenset({"agent:nanpr5mgm2py"})
 LEDGER_WAIT = 10.0
 # Facility answers already relayed by this process, so a queued turn does not repeat them.
 RELAYED: set[str] = set()
@@ -262,8 +265,13 @@ async def relay_facility_reply(city: City, need_id: str, history: list, citizen:
         key = f"{need_id}:receipt:{data['booking_id']}"
         if key in RELAYED or sent(history, city.agent_id, citizen, f"booking.receipt booking_id={data['booking_id']}"):
             return False
-        if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}"):
+        offer = offers(history, city.agent_id, citizen).get((confirmation or {}).get("offer_id", ""), {})
+        note = receipt_note(offer, writes_english(history, citizen))
+        if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']} {note}"):
             RELAYED.add(key)
+            if row.sender in ACK_FACILITIES:
+                # A quick, inert answer to the facility: it closes the loop between agents.
+                await send(city, row.sender, f"ack booking_id={data['booking_id']} Ricevuta inoltrata al cittadino, grazie.")
             return True
         return False
     key = f"{need_id}:cancel:{data.get('offer_id', '')}:{row.msg_id}"

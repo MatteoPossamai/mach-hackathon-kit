@@ -52,6 +52,29 @@ async def main(need: Need, city: City) -> None:
                 LOCKS.pop(key, None)
 
 
+async def follow_up(city: City, need_id: str, history: list, citizen: str) -> None:
+    """A citizen message without a prescription number: never leave it unanswered."""
+
+    english = writes_english(history, citizen)
+    receipt = next((row for row in reversed(history) if row.sender == city.agent_id
+                    and row.recipient == citizen and act(row.text) == "booking.receipt"), None)
+    if receipt is not None:
+        booking_id = fields(receipt.text).get("booking_id", "")
+        confirm = next((fields(row.text) for row in reversed(history) if row.sender == citizen
+                        and act(row.text) == "confirm"), {})
+        offer = offers(history, city.agent_id, citizen).get(confirm.get("offer_id", ""), {})
+        await send(city, citizen, recap_note(booking_id, offer, english))
+        return
+    number = case_number(history, citizen)
+    if number and TOKEN.fullmatch(number):
+        # The citizen added a need in words (another day, a doctor): search again with it.
+        await search(city, need_id, history, citizen, number)
+        return
+    await send(city, citizen, "data.request purpose=booking fields=prescription_number "
+               + ("Could you tell me your prescription number? I will find the best slot for you." if english
+                  else "Mi indichi il numero della ricetta: cercherò subito la soluzione più adatta a lei."))
+
+
 def is_red_flag(message) -> bool:
     if understood(message).body.get("is_emergency") is True:
         return True
@@ -133,7 +156,7 @@ async def handle(city: City, message) -> None:
         if number and TOKEN.fullmatch(number):
             await search(city, message.need_id, history, citizen, number)
         elif kind not in {"consent", "data.response"}:
-            await send(city, citizen, "data.request purpose=booking fields=prescription_number Mi indichi il numero della ricetta; cercherò una soluzione adatta.")
+            await follow_up(city, message.need_id, history, citizen)
         return
     if message.sender.startswith("agent:"):
         # Only accept a reply from an agent we actually contacted in this case.

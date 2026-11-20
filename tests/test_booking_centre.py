@@ -182,7 +182,7 @@ class JourneyTest(unittest.TestCase):
             await city.receive('citizen:1', f'confirm offer_id={offer_id} consent_ref=c1')
             self.assertTrue(any(to == 'agent:team/h' and text.startswith('confirm ') for to, text in city.out))
             await city.receive('agent:team/h', 'booking.receipt booking_id=b1 ledger_ref=r1')
-            self.assertIn(('citizen:1', 'booking.receipt booking_id=b1 ledger_ref=r1'), city.out)
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('booking.receipt booking_id=b1 ledger_ref=r1') for to, t in city.out))
         asyncio.run(run())
 
     def test_partner_offer_consent_and_confirmation(self):
@@ -258,7 +258,7 @@ class ConfirmRetryTest(unittest.TestCase):
         city.rows.append(receipt)
         asyncio.run(booking.handle(city, receipt))
         asyncio.run(booking.handle(city, receipt))
-        self.assertEqual(city.out[-1], ('citizen:1', 'booking.receipt booking_id=b1 ledger_ref=r1'))
+        self.assertTrue(city.out[-1][0] == 'citizen:1' and city.out[-1][1].startswith('booking.receipt booking_id=b1 ledger_ref=r1'))
         self.assertEqual(sum(1 for to, t in city.out if t.startswith('booking.receipt')), 1)
 
 
@@ -391,6 +391,56 @@ class LateConfirmTest(unittest.TestCase):
             self.assertIn('slot_id=s2', again[1])
             self.assertNotIn('slot_id=s1', again[1])
         asyncio.run(run())
+
+
+
+class ProactiveTest(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.REBOOKS.clear()
+
+    def rows(self, facility):
+        offer = (f'offer offer_id=o1 slot_id=s1 doctor_id=d-h1 facility={facility} procedure=VIS-FIS '
+                 'agenda_date=2026-11-09T10:30:00.000Z agenda_day=mon')
+        return [msg('citizen:1', 'Good morning, I need an English-speaking doctor. need.request prescription_number=rx1 lang=en', mid='a'),
+                msg(city_id(), offer, 'citizen:1', mid='b'),
+                msg('citizen:1', 'confirm offer_id=o1 consent_ref=c1', mid='c'),
+                msg(city_id(), 'confirm offer_id=o1 slot_id=s1', facility, mid='d')]
+
+    def test_receipt_has_details_and_hospital_gets_an_ack(self):
+        hospital = 'agent:nanpr5mgm2py'
+        rows = self.rows(hospital)
+        receipt = msg(hospital, 'booking.receipt booking_id=b1 ledger_ref=r1', city_id(), 'r')
+        city = FakeCity(rows + [receipt])
+        asyncio.run(booking.handle(city, receipt))
+        to_citizen = [t for to, t in city.out if to == 'citizen:1']
+        self.assertTrue(to_citizen[0].startswith('booking.receipt booking_id=b1 ledger_ref=r1 '))
+        self.assertIn('Monday 9 November at 10:30', to_citizen[0])
+        self.assertIn((hospital, 'ack booking_id=b1 Ricevuta inoltrata al cittadino, grazie.'), city.out)
+
+    def test_specialist_never_gets_an_ack(self):
+        spec = 'agent:pky3vqyqbepa'
+        receipt = msg(spec, 'booking.receipt booking_id=b1 ledger_ref=r1', city_id(), 'r')
+        city = FakeCity(self.rows(spec) + [receipt])
+        asyncio.run(booking.handle(city, receipt))
+        self.assertFalse(any(to == spec for to, t in city.out))
+
+    def test_thanks_after_booking_gets_a_recap_not_a_data_request(self):
+        rows = self.rows('agent:nanpr5mgm2py') + [
+            msg(city_id(), 'booking.receipt booking_id=b1 ledger_ref=r1 ok', 'citizen:1', mid='e')]
+        thanks = msg('citizen:1', 'Thank you so much!', mid='f')
+        city = FakeCity(rows + [thanks])
+        asyncio.run(booking.handle(city, thanks))
+        self.assertEqual(len(city.out), 1)
+        self.assertIn('b1 is confirmed', city.out[0][1])
+        self.assertNotIn('data.request', city.out[0][1])
+
+    def test_offer_note_names_the_needs_kept(self):
+        note = booking.offer_note({'lang': 'en', 'gender': 'f'}, False, True)
+        self.assertIn('speaks English', note)
+        self.assertIn('female doctor', note)
+        self.assertIn('accessibility', note)
+        self.assertIn('medico che parla inglese', booking.offer_note({'lang': 'en'}, False, False))
 
 
 if __name__ == '__main__':
