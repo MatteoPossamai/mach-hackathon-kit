@@ -153,6 +153,37 @@ _WORRIED_STEMS = (
     "nervous",
     "panic",
 )
+_LANG_ALIASES: dict[str, str] = {
+    "italiano": "it",
+    "italian": "it",
+    "inglese": "en",
+    "english": "en",
+    "spagnolo": "es",
+    "spanish": "es",
+    "español": "es",
+    "francese": "fr",
+    "french": "fr",
+    "français": "fr",
+    "arabo": "ar",
+    "arabic": "ar",
+    "cinese": "zh",
+    "chinese": "zh",
+    "romeno": "ro",
+    "rumeno": "ro",
+    "romanian": "ro",
+    "tedesco": "de",
+    "german": "de",
+    "portoghese": "pt",
+    "portuguese": "pt",
+    "ucraino": "uk",
+    "ukrainian": "uk",
+    "russo": "ru",
+    "russian": "ru",
+    "albanese": "sq",
+    "albanian": "sq",
+    "urdu": "ur",
+    "hindi": "hi",
+}
 _URGENT_WORDS = frozenset({"urgente", "urgenza", "urgent", "urgency", "subito", "emergenza"})
 _TOKEN_SAFE = re.compile(r"^[A-Za-z0-9_.:/@-]+$")
 _REFUSAL_CODE_RE = re.compile(r"\b([A-Z][A-Z0-9_]{2,40})\b")
@@ -478,16 +509,25 @@ async def _dispatch(city: City, message: Message, chat: list[Message], key: str)
         await _on_checkin(city, message, chat)
         return
 
-    # 3. Citizen consent reply resuming a pending booking confirmation
+    # 3. Citizen consent reply (cross_asst ring offers OR pending booking confirmation)
     fields = msg_fields(message)
     if (
         message.sender.startswith("citizen:")
-        and _safe_token(fields.get("consent_ref"))
-        and (parsed.type == "consent" or "consent" in kind)
+        and (
+            parsed.type == "consent"
+            or "consent" in kind
+            or _awaiting_cross_asst_consent(chat, city.agent_id, current_msg_id=message.msg_id)
+        )
         and "confirm" not in kind
+        and "slot_id" not in fields
+        and "offer_id" not in fields
     ):
-        if await _resume_confirm_with_consent(city, message, chat, key):
+        if _awaiting_cross_asst_consent(chat, city.agent_id, current_msg_id=message.msg_id):
+            await _on_cross_asst_consent_reply(city, message, chat, key)
             return
+        if _safe_token(fields.get("consent_ref")):
+            if await _resume_confirm_with_consent(city, message, chat, key):
+                return
 
     # 4. Booking confirmation from citizen or trusted agent
     if (parsed.type == "confirm" or "confirm" in kind) and (
@@ -496,9 +536,16 @@ async def _dispatch(city: City, message: Message, chat: list[Message], key: str)
         await _on_confirm(city, message, chat, key)
         return
 
-    # 5. Availability inquiry from a trusted partner agent
+    # 5. Partner agent replies (booking.receipt, cancel, offer) or availability inquiry
     if message.sender.startswith("agent:"):
+        if parsed.type == "booking.receipt" or "booking.receipt" in kind:
+            await _on_partner_receipt(city, message, chat)
+            return
         if parsed.type == "cancel" or "cancel" in kind:
+            await _on_partner_cancel(city, message, chat, key)
+            return
+        if parsed.type == "offer" or "offer" in kind:
+            await _on_partner_offer(city, message, chat)
             return
         await _on_agent_availability_request(city, message, chat, key)
         return
@@ -837,10 +884,10 @@ def _extract_nl_prefs(text: str) -> tuple[str | None, str | None, set[str] | Non
     toks = words(text)
 
     lang: str | None = None
-    if toks & {"english", "inglese"}:
-        lang = "en"
-    elif toks & {"italian", "italiano"}:
-        lang = "it"
+    for alias, code in _LANG_ALIASES.items():
+        if alias in toks:
+            lang = code
+            break
 
     gender: str | None = None
     if any(
@@ -859,6 +906,26 @@ def _extract_nl_prefs(text: str) -> tuple[str | None, str | None, set[str] | Non
         if len(alias) >= 4 and alias in toks:
             days.add(canonical)
     return lang, gender, (days or None)
+
+
+def _world_doctors(world_text: str) -> dict[str, tuple[frozenset[str], str, frozenset[str]]]:
+    """Parse any dynamic doctor rows in ``world`` (languages/gender/days) to augment ``_DOCTORS``."""
+    found: dict[str, tuple[frozenset[str], str, frozenset[str]]] = {}
+    for line in world_text.splitlines():
+        if "slot_id=" in line or "doctor_id=" not in line:
+            continue
+        f = fields_of(line)
+        doc_id = _safe_token(f.get("doctor_id"))
+        if not doc_id:
+            continue
+        langs_raw = f.get("languages") or f.get("lang") or ""
+        langs = frozenset(p.strip().lower() for p in re.split(r"[/,|]", langs_raw) if p.strip())
+        gender = (f.get("gender") or "").strip().lower()
+        days_raw = f.get("days") or ""
+        days = frozenset(_normalize_day(p) for p in re.split(r"[/,|]", days_raw) if p.strip())
+        if langs or gender or days:
+            found[doc_id] = (langs, gender, days)
+    return found
 
 
 def _citizen_prefs(chat: list[Message], message: Message) -> tuple[str, str | None, set[str] | None, str | None]:
@@ -895,9 +962,17 @@ def _citizen_prefs(chat: list[Message], message: Message) -> tuple[str, str | No
     return lang, gender, (days or None), priority
 
 
-def _speaks(doctor_id: str, lang: str) -> bool:
+def _speaks(
+    doctor_id: str,
+    lang: str,
+    dynamic_doctors: dict[str, tuple[frozenset[str], str, frozenset[str]]] | None = None,
+) -> bool:
     if not lang:
         return True
+    dyn = (dynamic_doctors or {}).get(doctor_id)
+    if dyn is not None and dyn[0]:
+        langs = dyn[0]
+        return lang in langs or ("*" in langs and lang not in {"it", "en"})
     spec = _DOCTORS.get(doctor_id.rsplit("-", 1)[-1])
     if spec is None:
         return True
@@ -921,6 +996,7 @@ def _fitting_slots(
     prio = (priority or "").upper() or None
     norm_days = {_normalize_day(d) for d in days} if days else None
     excluded = exclude_slots or set()
+    dyn_docs = _world_doctors(world_text)
 
     if prio == "U":
         today_end: datetime | None = now.replace(hour=23, minute=59, second=59, microsecond=0)
@@ -957,15 +1033,17 @@ def _fitting_slots(
                 continue
             if at <= earliest or (horizon is not None and at >= horizon):
                 continue
-            if not _speaks(doctor, lang):
+            if not _speaks(doctor, lang, dyn_docs):
                 continue
+            dyn = dyn_docs.get(doctor)
             spec = _DOCTORS.get(doctor.rsplit("-", 1)[-1])
+            doc_gender = (dyn[1] if dyn and dyn[1] else (spec[1] if spec else ""))
+            doc_days = (dyn[2] if dyn and dyn[2] else (spec[2] if spec else frozenset()))
             day = _normalize_day(slot.get("day") or slot.get("agenda_day", ""))
-            if spec is not None:
-                if day and day not in spec[2]:
-                    continue
-                if gender and spec[1] != gender:
-                    continue
+            if doc_days and day and day not in doc_days:
+                continue
+            if gender and doc_gender and doc_gender != gender:
+                continue
             if norm_days and day and day not in norm_days:
                 continue
             reserve_rank = 0 if (prio == "U" and is_reserve) else 1
@@ -1195,9 +1273,26 @@ async def _offer_to_citizen(
         return
 
     if not cache:
+        # Level 4 & 5: when no local CONS-GIN slot fits (scarcity or rare language/gender),
+        # query partner family_counseling clinics anonymously (ZERO citizen data sent!).
+        contacted = await _find_partner_counseling(
+            city, message.need_id, chat, priority=priority or "B"
+        )
+        if contacted:
+            reply = (
+                f"{lead}No matching slot is currently available in our clinic (direct access, "
+                "no referral needed): I am checking partner family counseling clinics right now. "
+                "I will ask your authorization before sharing any data."
+                if english
+                else f"{lead}Nella nostra sede non ci sono slot compatibili al momento (accesso diretto, "
+                "senza ricetta): sto verificando la disponibilità presso i consultori partner. "
+                "Le chiederò il consenso prima di condividere qualsiasi dato."
+            )
+            await _say(city, citizen, reply, allowed_citizen=citizen)
+            return
         reply = (
             f"{lead}No matching family counseling slots are currently available here. "
-            "No prescription is needed; please check back shortly or contact the booking centre "
+            "No referral is needed; please check back shortly or contact the booking centre "
             "for partner clinics."
             if english
             else f"{lead}Al momento non ci sono slot compatibili disponibili presso il nostro "
@@ -1205,6 +1300,290 @@ async def _offer_to_citizen(
             "al centro prenotazioni per verificare altre strutture."
         )
         await _say(city, citizen, reply, allowed_citizen=citizen)
+
+
+# --- Level 4 & 5 cross-ASST ring discovery & partner booking -----------------------------------
+
+
+def _partner_request_id(need_id: str | None) -> str:
+    raw = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in (need_id or "fc"))
+    return f"fc-ring-{raw[:24]}"
+
+
+async def _find_partner_counseling(
+    city: City, need_id: str | None, chat: list[Message], *, priority: str
+) -> int:
+    """Anonymously query partner ``family_counseling`` clinics on the ring (ZERO citizen data)."""
+    req_id = _partner_request_id(need_id)
+    if any(
+        row.sender == city.agent_id
+        and row.recipient.startswith("agent:")
+        and f"request_id={req_id}" in row.text.split()
+        for row in chat
+    ):
+        return 0
+
+    peers = []
+    for query in ("family_counseling.gynecology", "family_counseling", PROCEDURE):
+        try:
+            peers = await city.find(query)
+        except CapError:
+            peers = []
+        if peers:
+            break
+
+    contacted = 0
+    for peer in peers:
+        if contacted >= 8:
+            break
+        if peer.agent_id == city.agent_id or peer.agent_id in _TEAM_AGENTS:
+            continue
+        if peer.role and peer.role not in {"facility", "family_counseling"}:
+            continue
+        caps = tuple(getattr(peer, "capabilities", ()) or ())
+        if caps and not any(c.startswith("family_counseling") for c in caps):
+            continue
+        if await _say(
+            city,
+            peer.agent_id,
+            f"need.request service_type=family_counseling.gynecology procedure={PROCEDURE} "
+            f"priority={priority} request_id={req_id}",
+        ):
+            contacted += 1
+    return contacted
+
+
+def _awaiting_cross_asst_consent(
+    chat: list[Message], agent: str, *, current_msg_id: str = ""
+) -> bool:
+    asked_idx = -1
+    for idx, row in enumerate(chat):
+        if (
+            row.sender == agent
+            and row.recipient.startswith("citizen:")
+            and "purpose=cross_asst" in row.text.split()
+            and "consent" in words(row.text)
+        ):
+            asked_idx = idx
+    if asked_idx < 0:
+        return False
+    # Already answered if an earlier citizen message (not the current turn) arrived after we asked.
+    for row in chat[asked_idx + 1 :]:
+        if row.msg_id == current_msg_id:
+            continue
+        if row.sender.startswith("citizen:"):
+            return False
+    return True
+
+
+def _cross_asst_consent_ref(chat: list[Message], agent: str) -> str:
+    asked_idx = -1
+    for idx, row in enumerate(chat):
+        if (
+            row.sender == agent
+            and row.recipient.startswith("citizen:")
+            and "purpose=cross_asst" in row.text.split()
+        ):
+            asked_idx = idx
+    for idx, row in enumerate(chat):
+        if not row.sender.startswith("citizen:"):
+            continue
+        f = msg_fields(row)
+        ref = _safe_token(f.get("consent_ref"))
+        if not ref:
+            continue
+        if f.get("purpose") == "cross_asst" or (asked_idx >= 0 and idx > asked_idx):
+            return ref
+    return ""
+
+
+async def _on_partner_offer(city: City, message: Message, chat: list[Message]) -> None:
+    """When a contacted partner sends a CONS-GIN offer, request cross_asst consent first (P2)."""
+    agent = city.agent_id
+    contacted = any(
+        row.sender == agent and row.recipient == message.sender and "need.request" in words(row.text)
+        for row in chat
+    )
+    if not contacted:
+        return
+    citizen = _citizen(chat)
+    if not citizen:
+        return
+    if _cross_asst_consent_ref(chat, agent):
+        await _send_partner_offers_to_citizen(city, message, chat, citizen)
+        return
+    if _we(chat, agent, "purpose=cross_asst", to=citizen, word="consent"):
+        return
+    english = _is_english(chat)
+    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    ask = (
+        f"consent purpose=cross_asst {lead}I found available counseling slots at a partner clinic "
+        "in another ASST. May I share the minimum details needed to finalize your booking there?"
+        if english
+        else f"consent purpose=cross_asst {lead}Ho trovato disponibilità presso un consultorio "
+        "partner di un'altra ASST. Mi autorizza a condividere i dati minimi per prenotare lì?"
+    )
+    await _say(city, citizen, ask, allowed_citizen=citizen)
+
+
+async def _on_cross_asst_consent_reply(
+    city: City, message: Message, chat: list[Message], key: str
+) -> None:
+    citizen = message.sender
+    f = msg_fields(message)
+    ref = _safe_token(f.get("consent_ref"))
+    declined = any(
+        f.get(k, "").lower() in {"false", "no", "0", "denied", "refused"}
+        for k in ("granted", "accepted", "consent", "allow", "allowed")
+    )
+    if not ref or declined:
+        english = _is_english(chat, message.text)
+        msg = (
+            "Understood, I will not share any data outside our ASST. "
+            "Please contact us again shortly if you want to check local slots."
+            if english
+            else "Ricevuto, non condividerò alcun dato fuori dalla nostra ASST. "
+            "Può ricontattarci tra poco per verificare nuove disponibilità in sede."
+        )
+        await _say(city, citizen, msg, allowed_citizen=citizen)
+        return
+    await _send_partner_offers_to_citizen(city, message, chat, citizen)
+
+
+async def _send_partner_offers_to_citizen(
+    city: City, message: Message, chat: list[Message], citizen: str
+) -> None:
+    """Filter partner offers against citizen's combined preferences (L5) and send in 1 message."""
+    agent = city.agent_id
+    lang, gender, days, priority = _citizen_prefs(chat, message)
+    now = _agenda_now(chat) or datetime.now(UTC)
+    cancelled = _cancelled_slots(chat, agent)
+
+    raw_lines: list[str] = []
+    for row in chat:
+        if not row.sender.startswith("agent:") or "offer" not in words(row.text):
+            continue
+        contacted = any(
+            prev.sender == agent and prev.recipient == row.sender and "need.request" in words(prev.text)
+            for prev in chat
+        )
+        if not contacted:
+            continue
+        for line in row.text.splitlines():
+            if "slot_id=" in line:
+                item = fields_of(line)
+                if item.get("facility", row.sender) == row.sender:
+                    raw_lines.append(line)
+
+    if not raw_lines:
+        return
+    combined_world = "slots page=1/1\n" + "\n".join(raw_lines)
+    strict = _fitting_slots(
+        combined_world,
+        now=now,
+        agent_id="__partner__",
+        priority=priority,
+        lang=lang,
+        gender=gender,
+        days=days,
+        exclude_slots=cancelled,
+    )
+    relaxed = False
+    chosen = strict
+    if not chosen and (days or gender):
+        chosen = _fitting_slots(
+            combined_world,
+            now=now,
+            agent_id="__partner__",
+            priority=priority,
+            lang=lang,
+            gender=None,
+            days=None,
+            exclude_slots=cancelled,
+        )
+        relaxed = bool(chosen)
+
+    english = _is_english(chat)
+    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    if chosen:
+        lines = [_offer_line(s, agent_id=s.get("facility", agent), priority=priority) for s in chosen[:4]]
+        note = (
+            f"{lead}Here are the available partner family counseling slots (direct access, no referral needed). "
+            "Please choose your preferred slot."
+            if english
+            else (
+                f"{lead}Ecco le alternative più vicine presso consultori partner (accesso diretto, senza ricetta). "
+                "Indichi l'offerta scelta."
+                if relaxed
+                else f"{lead}Ecco le disponibilità presso consultori partner (accesso diretto, senza ricetta). "
+                "Indichi l'offerta che preferisce."
+            )
+        )
+        await _say(city, citizen, "\n".join(lines) + f"\n{note}", allowed_citizen=citizen)
+    else:
+        msg = (
+            f"{lead}Partner clinics currently have no slot matching your language/constraints either. "
+            "Please check back shortly."
+            if english
+            else f"{lead}Al momento nemmeno i consultori partner hanno slot compatibili con le sue "
+            "esigenze. Può riprovare tra poco."
+        )
+        await _say(city, citizen, msg, allowed_citizen=citizen)
+
+
+async def _on_partner_receipt(city: City, message: Message, chat: list[Message]) -> None:
+    """Forward a confirmed partner facility's booking.receipt to our citizen."""
+    confirmed = any(
+        row.sender == city.agent_id
+        and row.recipient == message.sender
+        and "confirm" in words(row.text)
+        for row in chat
+    )
+    if not confirmed:
+        return
+    f = msg_fields(message)
+    booking_id = _safe_token(f.get("booking_id"))
+    ledger_ref = _safe_token(f.get("ledger_ref"))
+    citizen = _citizen(chat)
+    if not booking_id or not ledger_ref or not citizen:
+        return
+    if _we(chat, city.agent_id, f"booking_id={booking_id}", to=citizen, word="booking.receipt"):
+        return
+    await _say(
+        city,
+        citizen,
+        _receipt_text(booking_id, ledger_ref, chat=chat, to_citizen=True),
+        allowed_citizen=citizen,
+    )
+
+
+async def _on_partner_cancel(
+    city: City, message: Message, chat: list[Message], key: str
+) -> None:
+    confirmed = any(
+        row.sender == city.agent_id
+        and row.recipient == message.sender
+        and "confirm" in words(row.text)
+        for row in chat
+    )
+    if not confirmed:
+        return
+    f = msg_fields(message)
+    offer_id = _safe_token(f.get("offer_id"))
+    slot_id = _safe_token(f.get("slot_id"))
+    citizen = _citizen(chat)
+    if not citizen:
+        return
+    parts = ["cancel"]
+    if offer_id:
+        parts.append(f"offer_id={offer_id}")
+    if slot_id:
+        parts.append(f"slot_id={slot_id}")
+    parts.append(f"reason={_extract_refusal_reason(message.text)}")
+    parts.append("La struttura partner ha annullato lo slot; verifico altre disponibilità.")
+    await _say(city, citizen, " ".join(parts), allowed_citizen=citizen)
+    fresh = await city.history(need_id=message.need_id)
+    await _send_partner_offers_to_citizen(city, message, fresh, citizen)
 
 
 async def _on_agent_availability_request(
@@ -1404,9 +1783,12 @@ async def _on_confirm(city: City, message: Message, chat: list[Message], key: st
     offer_id = _safe_token(fields.get("offer_id"))
     offer = _our_offer(chat, agent, offer_id) if offer_id else {}
     slot = _safe_token(fields.get("slot_id") or offer.get("slot_id"))
+    facility = _safe_token(fields.get("facility") or offer.get("facility")) or agent
     consent = _safe_token(fields.get("consent_ref"))
     cross_consent = _safe_token(
-        fields.get("cross_asst_consent_ref") or fields.get("cross_asst_consent")
+        fields.get("cross_asst_consent_ref")
+        or fields.get("cross_asst_consent")
+        or _cross_asst_consent_ref(chat, agent)
     )
     citizen = _safe_token(
         fields.get("citizen")
@@ -1435,6 +1817,39 @@ async def _on_confirm(city: City, message: Message, chat: list[Message], key: st
             "mi autorizza a procedere con la prenotazione di questo slot?"
         )
         await _say(city, message.sender, ask, allowed_citizen=message.sender)
+        return
+
+    # Cross-ASST partner booking (Level 4): forward confirm to the partner clinic with consent!
+    if message.sender.startswith("citizen:") and facility != agent and facility.startswith("agent:"):
+        if not cross_consent:
+            english = _is_english(chat, message.text)
+            ask = (
+                "consent purpose=cross_asst Before booking at the partner clinic, "
+                "may I share your booking details outside our ASST?"
+                if english
+                else "consent purpose=cross_asst Prima di prenotare presso il consultorio partner, "
+                "mi autorizza a condividere i dati necessari fuori ASST?"
+            )
+            await _say(city, message.sender, ask, allowed_citizen=message.sender)
+            return
+        if not _we(chat, agent, f"slot_id={slot}", to=facility, word="confirm"):
+            parts = [
+                "confirm",
+                f"offer_id={offer_id or f'of-{slot}'}",
+                f"slot_id={slot}",
+                f"citizen={citizen}",
+                f"consent_ref={consent}",
+                f"cross_asst_consent_ref={cross_consent}",
+                f"facility={facility}",
+            ]
+            if not await _say(city, facility, " ".join(parts), allowed_citizen=citizen):
+                await _say(
+                    city,
+                    message.sender,
+                    f"cancel offer_id={offer_id or f'of-{slot}'} slot_id={slot} "
+                    "reason=facility_unavailable La struttura partner non è raggiungibile.",
+                    allowed_citizen=message.sender,
+                )
         return
 
     # Idempotency on duplicate confirm: return existing receipt without double-holding.
