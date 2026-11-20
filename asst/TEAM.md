@@ -30,8 +30,8 @@ Deployer: Diego.
 ## Chi fa cosa
 | Agente | Owner |
 |---|---|
-| booking_centre | Matteo |
-| gp | Diego |
+| booking_centre | Diego |
+| gp | Matteo |
 | specialist | Pietro |
 | hospital | Diego |
 | family_counseling | Gabriele |
