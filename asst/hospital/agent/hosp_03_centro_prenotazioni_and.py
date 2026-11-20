@@ -358,11 +358,7 @@ async def _on_confirm(
             # Verify the sender through the Index and the slot through our Ledger.
             if not message.sender.startswith("agent:") or not citizen.startswith("citizen:") or not number:
                 return
-            try:
-                peers = await city.find("booking_centre")
-            except CapError:
-                return
-            if not any(peer.agent_id == message.sender and peer.role == "booking_centre" for peer in peers):
+            if not await _trusted_booking_centre(city, message.sender):
                 return
             chat = await _hospital_slot_history(city, message, chat, slot)
             if not any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent

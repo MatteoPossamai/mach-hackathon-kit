@@ -110,3 +110,41 @@ class HospitalTest(unittest.TestCase):
         self.assertTrue(any(to == 'agent:team/booking' and 'request_id=Q2' in text for to, text in city.out))
 
 if __name__ == '__main__': unittest.main()
+
+
+class HospitalProactiveTest(unittest.TestCase):
+    def test_our_booking_centre_is_trusted_when_the_index_hides_booking_centres(self):
+        class HiddenIndex(City):
+            async def find(self, query):
+                return []
+        incoming = confirm('agent:gdrf9b9kxxss')
+        city = HiddenIndex([incoming, slots()])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._on_confirm(city, incoming, list(city.rows), hold_self=False))
+        self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
+
+    def test_unknown_agent_is_refused_when_the_index_lists_booking_centres(self):
+        self.assertFalse(asyncio.run(hospital._trusted_booking_centre(City(), 'agent:impostor/bc')))
+        self.assertTrue(asyncio.run(hospital._trusted_booking_centre(City(), 'agent:team/booking')))
+
+    def test_check_in_in_words_uses_the_booking_of_the_case(self):
+        class CheckinCity(City):
+            async def say(self, to, text):
+                await super().say(to, text)
+                if to == hospital.LEDGER and text.startswith('checkin '):
+                    self.rows.append(msg(hospital.LEDGER, 'checked_in booking_id=B1 ledger_ref=L1', mid='ci1'))
+        rows = [msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1', mid='c1')]
+        arrival = msg('citizen:1', 'Buongiorno, sono arrivato in ospedale per la visita', mid='a1')
+        city = CheckinCity(rows + [arrival])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._facility(city, arrival, list(city.rows), reports=False, hold_self=False))
+        self.assertIn((hospital.LEDGER, 'checkin booking_id=B1 citizen=citizen:1'), city.out)
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('checkin booking_id=B1') for to, text in city.out))
+
+    def test_other_citizen_words_always_get_a_helpful_answer(self):
+        question = msg('citizen:1', 'Scusi, come funziona?', mid='q1')
+        city = City([question])
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._facility(city, question, list(city.rows), reports=False, hold_self=False))
+        self.assertEqual(len(city.out), 1)
+        self.assertIn('ricetta', city.out[0][1])

@@ -12,7 +12,7 @@ citizens read the act word and ``key=value`` tokens (ADR-110).
 from pathlib import Path as _Path
 
 _HERE = _Path(__file__).resolve().parent
-_PARTS = ('gp_00_base', 'gp_01_shared', 'gp_02_medico_di_base', 'gp_03_centro_prenotazioni_and', 'gp_04_facility')
+_PARTS = ('gp_00_base', 'gp_01_shared', 'gp_02_medico_di_base', 'gp_03_centro_prenotazioni_and', 'gp_04_facility', 'gp_05_proactive')
 for _part in _PARTS:
     _file = _HERE / f"{_part}.py"
     exec(compile(_file.read_text(encoding="utf-8"), str(_file), "exec"), globals())

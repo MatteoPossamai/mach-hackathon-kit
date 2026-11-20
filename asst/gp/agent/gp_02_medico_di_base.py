@@ -109,6 +109,11 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         clarify = _CLARIFY_EN if _english(message.text) else _CLARIFY_IT
         if not _exact(chat, agent, clarify):
             await _say(city, message.sender, clarify)
+        else:
+            # Asked once already: never fall silent, point to what can help.
+            other = _OTHER_EN if _english(message.text) else _OTHER_IT
+            if not _exact(chat, agent, other):
+                await _say(city, message.sender, other)
         return
     procedure, priority = _PROTOCOLS[code]
     number = _rx(message.need_id, message.msg_id)

@@ -381,8 +381,11 @@ async def _on_checkin(city: City, message: Message, chat: list[Message], *, repo
             city, citizen,
             f"refused booking_id={booking_id}"
             + (f" reason={reason}" if reason else "")
-            + " Non riesco a registrare il check-in con questo numero di prenotazione. "
-            "Controlli il numero sulla ricevuta o contatti il centro prenotazioni.",
+            + (" I cannot register the check-in with this booking number. Please check the number "
+               "on your receipt, or write to the booking centre: they will help you right away."
+               if _en(chat) else
+               " Non riesco a registrare il check-in con questo numero di prenotazione. "
+               "Controlli il numero sulla ricevuta o scriva al centro prenotazioni: la aiuteranno subito."),
         )
 
 

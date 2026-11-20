@@ -95,3 +95,31 @@ class GPTest(unittest.TestCase):
         self.assertIsNone(asyncio.run(gp._symptom_llm(Fake(None), 'unknown')))
 
 if __name__ == '__main__': unittest.main()
+
+
+class GpProactiveTest(unittest.TestCase):
+    def test_prescription_note_says_what_happens_next(self):
+        note = gp._rx_note('VIS-FIS', 'B', english=False)
+        self.assertIn('centro prenotazioni le proporrà', note)
+        self.assertIn('within this deadline', gp._rx_note('VIS-FIS', 'B', english=True))
+
+    def test_unclear_problem_twice_still_gets_an_answer(self):
+        from city_sdk.city import CapError
+
+        class C:
+            agent_id = 'agent:team/gp'
+            def __init__(self, rows):
+                self.rows, self.out = rows, []
+            async def history(self, **kw): return list(self.rows)
+            async def say(self, to, text):
+                self.out.append((to, text))
+            async def llm(self, *a, **k): raise CapError('KEY_UNKNOWN', 'x')
+            async def find(self, q): return []
+        def m(sender, text, to='agent:team/gp', mid='x'):
+            return Message(type='chat', sender=sender, recipient=to, msg_id=mid, need_id='N-1', body={'text': text})
+        rows = [m('citizen:1', 'Ho un fastidio strano', mid='a'),
+                m('agent:team/gp', gp._CLARIFY_IT, 'citizen:1', mid='b'),
+                m('citizen:1', 'Non so spiegare, un fastidio', mid='c')]
+        city = C(rows)
+        asyncio.run(gp._gp(city, rows[-1], rows))
+        self.assertEqual(city.out, [('citizen:1', gp._OTHER_IT)])
