@@ -11,6 +11,8 @@ Deployer: Diego.
 - **Massimo 3 build in contemporanea per squadra**: con un quarto deploy parallelo la city risponde `QUOTA_EXCEEDED builds`.
 - City Hall può imporre un intervallo minimo tra due update dello stesso agente (`this agent can be updated once every N minutes`) e stringere le quote prima del freeze delle 06:00. Raggruppate le modifiche invece di fare un deploy per ogni riga.
 - Il primo deploy può fallire alla conformance per lentezza della city (`custody.ack ... renews=[]`): se `Dockerfile` e `city.yaml` non sono stati toccati, basta rilanciarlo.
+- **Coda globale dei rollout**: la city fa al massimo 10 rollout insieme per tutte le squadre (2 per squadra), in stretto ordine di arrivo. Se `city deploy` resta fermo su `[8/10] roll out`, è in coda. **Non interrompetelo e non rilanciatelo**: il deployment sul server continua comunque e quello nuovo finisce in fondo alla coda. Per vedere la posizione (`waiting for a rollout slot, N ahead`), dalla cartella `asst/`:
+  `~/.local/share/uv/tools/city-cli/bin/python tools/deploy_verbose.py deploy <agente>`
 
 ## Setup per un membro (circa 5 minuti)
 1. `curl -LsSf https://astral.sh/uv/install.sh | sh`
