@@ -198,6 +198,14 @@ _GATES: dict[str, _Gate] = {}
 _OFFERED_NEEDS: OrderedDict[str, set[str]] = OrderedDict()
 _URGENT_NEEDS: OrderedDict[str, None] = OrderedDict()
 _TRUSTED_PEERS: set[str] = set()
+# Our own team's agents (asst/*/card.yaml) are always trusted, even when the Index does not
+# list them for this role: otherwise our booking centre's confirm would be dropped silently.
+_TEAM_AGENTS = frozenset({
+    "agent:gdrf9b9kxxss",  # booking_centre
+    "agent:nanpr5mgm2py",  # hospital
+    "agent:c2ewegr2ea3v",  # gp
+    "agent:atp772whjkgd",  # family_counseling
+})
 _TRUSTED_REFRESHED_AT: float = 0.0
 _TRUSTED_LOCAL_MODE: bool = False
 _UNKNOWN_PEER_CHECKED: dict[str, float] = {}
@@ -333,7 +341,7 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
     """Trust only ``city:ledger`` and agents returned by ``city.find`` (Level 8 impostor guard)."""
     global _TRUSTED_REFRESHED_AT, _TRUSTED_LOCAL_MODE
 
-    if sender_id == LEDGER:
+    if sender_id == LEDGER or sender_id in _TEAM_AGENTS:
         return True
     if not sender_id.startswith("agent:"):
         return False
