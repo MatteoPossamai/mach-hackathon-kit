@@ -27,4 +27,23 @@ class SpecialistEmergencyTest(unittest.TestCase):
         self.assertEqual(len(city.out), 1)
         self.assertIn('escalate.emergency reason=red_flag', city.out[0][1])
 
+    def test_initial_visit_does_not_automatically_create_follow_up(self):
+        self.assertFalse(specialist._needs_follow_up([], {
+            'procedure': 'VIS-CARD', 'priority': 'B', 'symptom_code': 'SYM-PALPITATIONS'
+        }))
+
+    def test_explicit_care_team_follow_up_is_honored(self):
+        clinician = Message(type='chat', sender='agent:c2ewegr2ea3v', msg_id='m2', need_id='N-2',
+                            body={'text': 'follow_up=true'})
+        self.assertTrue(specialist._needs_follow_up([clinician], {
+            'procedure': 'VIS-CARD', 'priority': 'B'
+        }))
+
+    def test_citizen_request_cannot_trigger_prescription(self):
+        citizen = Message(type='chat', sender='citizen:1', msg_id='m3', need_id='N-3',
+                          body={'text': 'Vorrei una ricetta di controllo'})
+        self.assertFalse(specialist._needs_follow_up([citizen], {
+            'procedure': 'VIS-CARD', 'priority': 'B'
+        }))
+
 if __name__ == '__main__': unittest.main()
