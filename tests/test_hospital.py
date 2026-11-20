@@ -1,0 +1,112 @@
+import asyncio
+import importlib.util
+import os
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from city_sdk.city import Message, Need
+
+spec = importlib.util.spec_from_file_location('hospital_brain', Path(__file__).parents[1] / 'asst/hospital/agent/agent.py')
+hospital = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(hospital)
+hospital._PULL_TRIES = 3
+hospital._PULL_PAUSE = 0
+
+
+def msg(sender, text, recipient='agent:team/hospital', mid='m1'):
+    return Message(type='chat', sender=sender, recipient=recipient, msg_id=mid,
+                   need_id='N-case', body={'text': text})
+
+
+class City:
+    agent_id = 'agent:team/hospital'
+    address = ''
+    def __init__(self, rows=None):
+        self.rows = list(rows or [])
+        self.out = []
+        self.inbound = None
+    async def history(self, **kwargs): return list(self.rows)
+    async def find(self, query):
+        return [SimpleNamespace(agent_id='agent:team/booking', role='booking_centre')]
+    async def say(self, to, text):
+        self.out.append((to, text))
+        self.rows.append(msg(self.agent_id, text, to, f'out-{len(self.rows)}'))
+        if to == hospital.LEDGER and text.startswith('hold '):
+            self.rows.append(msg(hospital.LEDGER, 'held hold_id=H1 slot_id=S1 fence=1', mid='held1'))
+        elif to == hospital.LEDGER and text.startswith('commit '):
+            self.rows.append(msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1', mid='committed1'))
+
+
+def slots(facility='agent:team/hospital'):
+    return msg(hospital.LEDGER, f'slots page=1/1\nslot_id=S1 facility={facility} doctor_id=D1 procedure=VIS-FIS at=2026-11-23T12:00:00+00:00', mid='world1')
+
+
+def confirm(sender='agent:team/booking'):
+    return msg(sender, 'confirm offer_id=O1 slot_id=S1 citizen=citizen:1 prescription_number=RX1 consent_ref=C1', mid='confirm1')
+
+
+class HospitalTest(unittest.TestCase):
+    def run_confirm(self, city, incoming):
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital._on_confirm(city, incoming, list(city.rows), hold_self=False))
+    def test_hold_commit_and_receipt_with_distinct_ids(self):
+        incoming = confirm(); city = City([incoming, slots()])
+        self.run_confirm(city, incoming)
+        self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
+        self.assertTrue(any(to == hospital.LEDGER and 'commit hold_id=H1 consent_ref=C1' in text for to, text in city.out))
+        self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1 ledger_ref=L1' in text for to, text in city.out))
+    def test_no_commit_without_our_hold_or_real_consent(self):
+        incoming = msg(hospital.LEDGER, 'held hold_id=H1 slot_id=S1 fence=1 need_id=N-123', mid='held')
+        city = City([incoming])
+        asyncio.run(hospital._on_held(city, incoming, city.rows))
+        self.assertEqual(city.out, [])
+    def test_cross_asst_hold_and_booking_consent_remain_separate(self):
+        incoming = msg('agent:team/booking', 'confirm offer_id=O1 slot_id=S1 citizen=citizen:1 prescription_number=RX1 consent_ref=BOOK cross_asst_consent_ref=CROSS')
+        city = City([incoming, slots()])
+        self.run_confirm(city, incoming)
+        self.assertTrue(any(text.startswith('hold ') and 'consent_ref=CROSS' in text for to, text in city.out if to == hospital.LEDGER))
+        self.assertTrue(any(text.startswith('commit ') and 'consent_ref=BOOK' in text for to, text in city.out if to == hospital.LEDGER))
+    def test_duplicate_confirm_does_not_send_another_hold(self):
+        incoming = confirm(); city = City([incoming, slots()])
+        self.run_confirm(city, incoming)
+        self.run_confirm(city, incoming)
+        self.assertEqual(sum(text.startswith('hold ') for to, text in city.out if to == hospital.LEDGER), 1)
+    def test_rejects_unknown_sender(self):
+        incoming = confirm('agent:evil/other'); city = City([incoming, slots()])
+        self.run_confirm(city, incoming)
+        self.assertFalse(any(text.startswith('hold ') for _, text in city.out))
+    def test_rejects_another_hospitals_slot(self):
+        incoming = confirm(); city = City([incoming, slots('agent:other/hospital')])
+        self.run_confirm(city, incoming)
+        self.assertFalse(any(text.startswith('hold ') for _, text in city.out))
+    def test_unsolicited_committed_does_not_create_receipt(self):
+        incoming = msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1')
+        city = City([msg('citizen:1', 'hello'), incoming])
+        asyncio.run(hospital._on_committed(city, incoming, city.rows))
+        self.assertEqual(city.out, [])
+    def test_checkin_response_is_correlated_and_contains_ref(self):
+        request = msg('citizen:1', 'checkin booking_id=B1 ledger_ref=L1')
+        write = msg('agent:team/hospital', 'checkin booking_id=B1 citizen=citizen:1', hospital.LEDGER)
+        incoming = msg(hospital.LEDGER, 'checked_in booking_id=B1')
+        city = City([request, write, incoming])
+        asyncio.run(hospital._on_checked_in(city, incoming, city.rows, reports=False))
+        self.assertTrue(any(to == 'citizen:1' and 'checkin booking_id=B1 ledger_ref=L1' in text for to, text in city.out))
+    def test_emergency_before_clinical_refusal(self):
+        incoming = msg('citizen:1', 'Ho dolore al petto, desidero una diagnosi')
+        city = City([incoming]); city.inbound = incoming
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital.main(Need(), city))
+        self.assertEqual(len(city.out), 1)
+        self.assertIn('escalate.emergency reason=red_flag', city.out[0][1])
+    def test_new_partner_request_is_not_blocked_by_an_old_answer(self):
+        incoming = msg('agent:team/booking', 'need.request procedure=VIS-FIS priority=B request_id=Q2')
+        agenda = msg(hospital.LEDGER, 'agenda agenda_now=2026-11-23T00:00:00+00:00', mid='agenda')
+        world = msg(hospital.LEDGER, 'slots page=1/1\nslot_id=S1 facility=agent:team/hospital doctor_id=doctor-h1 procedure=VIS-FIS at=2026-11-23T12:00:00+00:00 day=mon free=1', mid='world')
+        previous = msg('agent:team/hospital', 'unavailable procedure=VIS-FIS request_id=Q1', 'agent:team/booking')
+        city = City([previous, incoming, agenda, world])
+        asyncio.run(hospital._partner_request(city, incoming, city.rows))
+        self.assertTrue(any(to == 'agent:team/booking' and 'request_id=Q2' in text for to, text in city.out))
+
+if __name__ == '__main__': unittest.main()
