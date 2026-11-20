@@ -522,6 +522,9 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         if not _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
             await _say(city, message.sender, "escalate.emergency reason=red_flag")
         return
+    if _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
+        # Red flag already escalated on this need: the GP stops, nothing else is sent.
+        return
     ours = _our_rx(chat, agent)
     if ours.get("prescription_number"):
         # Already prescribed on this need: never prescribe twice, never leave the citizen
