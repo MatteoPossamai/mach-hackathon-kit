@@ -16,6 +16,10 @@ DAY_CODES = ("mon", "tue", "wed", "thu", "fri")
 SERVICES = {"VIS-FIS": "hospital.physiatry", "VIS-CARD": "specialist_care.cardiology"}
 
 
+# Level 3: a citizen may write only the case code, e.g. "la ricetta N-2026-11-02-890910000081".
+NEED_IN_TEXT = re.compile(r"(?<![A-Za-z0-9_-])N-\d{4}-\d{2}-\d{2}-\d{4,}")
+
+
 def rx_from_text(history: list, citizen: str, text: str) -> str:
     """A prescription number found in free text, newest first, citizen messages only."""
 
@@ -23,7 +27,29 @@ def rx_from_text(history: list, citizen: str, text: str) -> str:
         found = RX_IN_TEXT.search(candidate or "")
         if found and TOKEN.fullmatch(found.group(0)):
             return found.group(0)
+        bare = NEED_IN_TEXT.search(candidate or "")
+        if bare and TOKEN.fullmatch("prescription_number-" + bare.group(0)):
+            return "prescription_number-" + bare.group(0)
     return ""
+
+
+def rx_guess(need_id: str) -> str:
+    """The number our GP gives this case's prescription (same rule as the GP's ``_rx``).
+
+    Only a guess: the Ledger must confirm it before anything is offered.
+    """
+
+    raw = (need_id or "").upper()
+    suffix = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in raw).strip("-")
+    number = "prescription_number-" + suffix[:40]
+    return number if len(suffix) >= 4 and TOKEN.fullmatch(number) else ""
+
+
+def ledger_refused(history: list, seen: set, op: str) -> bool:
+    """A Ledger refusal of ``op`` that arrived after ``seen`` was taken."""
+
+    return any(row.sender == LEDGER and row.msg_id not in seen and act(row.text) == "refused"
+               and op in row.text.lower() for row in history)
 
 
 # Our own agents (asst/*/card.yaml): never a cross-ASST partner.

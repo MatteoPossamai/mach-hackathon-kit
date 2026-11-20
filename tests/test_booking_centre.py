@@ -443,5 +443,52 @@ class ProactiveTest(unittest.TestCase):
         self.assertIn('medico che parla inglese', booking.offer_note({'lang': 'en'}, False, False))
 
 
+
+class Level3Test(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.REBOOKS.clear()
+        booking.CHOSEN.clear()
+
+    def test_bare_case_code_and_guess_from_need_id(self):
+        rows = [msg('citizen:1', 'la mia ricetta è la N-2026-11-02-890910000081, grazie')]
+        self.assertEqual(booking.rx_from_text(rows, 'citizen:1', rows[0].text), 'prescription_number-N-2026-11-02-890910000081')
+        self.assertEqual(booking.rx_guess('N-2026-11-02-890910000081'), 'prescription_number-N-2026-11-02-890910000081')
+
+    def items(self):
+        return [dict(offer_id='a', slot_id='s1', agenda_date='2026-11-09T10:30:00.000Z', agenda_day='mon'),
+                dict(offer_id='b', slot_id='s2', agenda_date='2026-11-10T12:00:00.000Z', agenda_day='tue'),
+                dict(offer_id='c', slot_id='s3', agenda_date='2026-11-10T14:30:00.000Z', agenda_day='tue')]
+
+    def test_choice_in_words(self):
+        items = self.items()
+        self.assertEqual(booking.match_choice('Va bene la seconda, grazie', items)['offer_id'], 'b')
+        self.assertEqual(booking.match_choice('martedì alle 14:30 è perfetto', items)['offer_id'], 'c')
+        self.assertEqual(booking.match_choice('I will take Monday', items)['offer_id'], 'a')
+        self.assertIsNone(booking.match_choice('martedì va bene', items))
+        self.assertIsNone(booking.match_choice('non posso lunedì', items))
+        self.assertIsNone(booking.match_choice('prima possibile per favore', items))
+
+    def test_first_message_in_words_books_without_asking_the_number(self):
+        async def run():
+            class EchoLedger(JourneyCity):
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('prescription '):
+                        number = booking.fields(text)['prescription_number']
+                        self.rows[-1] = msg('city:ledger', f'prescription prescription_number={number} state=issued procedure=VIS-FIS priority=B',
+                                            self.agent_id, f'rx-{len(self.rows)}')
+            city = EchoLedger()
+            await city.receive('citizen:1', 'Buongiorno, ho mal di schiena e vorrei una visita il prima possibile.')
+            self.assertTrue(any(to == 'city:ledger' and 'prescription_number=prescription_number-CASE-1' in t for to, t in city.out))
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
+            self.assertFalse(any('data.request' in t for to, t in city.out))
+            await city.receive('citizen:1', 'Perfetto, prendo la prima.')
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('consent purpose=booking') for to, t in city.out))
+            await city.receive('citizen:1', 'consent purpose=booking consent_ref=c9')
+            self.assertTrue(any(to == 'agent:team/h' and t.startswith('confirm ') and 'consent_ref=c9' in t for to, t in city.out))
+        asyncio.run(run())
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -26,6 +26,8 @@ from bc_prefs import *  # noqa: F401,F403
 from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
 from bc_flow import *  # noqa: F401,F403
+from bc_choice import *  # noqa: F401,F403
+import bc_choice  # noqa: F401
 
 LOCKS: dict[str, asyncio.Lock] = {}
 
@@ -52,6 +54,30 @@ async def main(need: Need, city: City) -> None:
                 LOCKS.pop(key, None)
 
 
+async def book_choice(city: City, message, history: list, citizen: str, selected: dict[str, str],
+                      data: dict[str, str]) -> None:
+    """The citizen chose ``selected`` (one of our offers): consent, freshness, then the facility."""
+
+    CHOSEN[message.need_id] = selected["offer_id"]
+    facility = selected["facility"]
+    remote = sent(history, city.agent_id, facility, "need.request ")
+    cross = cross_consent(history, city.agent_id, citizen) if remote else ""
+    consent = data.get("consent_ref", "") or cross
+    if not consent or (remote and not cross):
+        purpose = "cross_asst" if remote else "booking"
+        await send(city, citizen, f"consent purpose={purpose} Posso procedere con la prenotazione scelta? / May I proceed with the booking you chose?")
+        return
+    if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
+        if await slot_expired(city, message.need_id, history, selected):
+            english = writes_english(history, citizen)
+            await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=slot_expired "
+                       + ("This slot has already passed." if english else "Questo posto è ormai passato."))
+            await rebook(city, message.need_id, citizen, frozenset({selected["slot_id"]}))
+            return
+        await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
+    return
+
+
 async def follow_up(city: City, need_id: str, history: list, citizen: str) -> None:
     """A citizen message without a prescription number: never leave it unanswered."""
 
@@ -65,14 +91,24 @@ async def follow_up(city: City, need_id: str, history: list, citizen: str) -> No
         offer = offers(history, city.agent_id, citizen).get(confirm.get("offer_id", ""), {})
         await send(city, citizen, recap_note(booking_id, offer, english))
         return
+    message = city.inbound
+    if message is not None and latest_offers(history, city.agent_id, citizen):
+        selected = await resolve_choice(city, history, citizen, message.text, use_llm=False)
+        if selected and selected.get("slot_id"):
+            await book_choice(city, message, history, citizen, selected, fields(message.text))
+            return
     number = case_number(history, citizen)
     if number and TOKEN.fullmatch(number):
         # The citizen added a need in words (another day, a doctor): search again with it.
         await search(city, need_id, history, citizen, number)
         return
-    await send(city, citizen, "data.request purpose=booking fields=prescription_number "
-               + ("Could you tell me your prescription number? I will find the best slot for you." if english
-                  else "Mi indichi il numero della ricetta: cercherò subito la soluzione più adatta a lei."))
+    guess = rx_guess(need_id)
+    if guess and not any(row.sender == city.agent_id and row.recipient == LEDGER
+                         and f"prescription_number={guess}" in row.text for row in history):
+        # Level 3: no number in words. Our GP numbers prescriptions by case: verify that first.
+        await search(city, need_id, history, citizen, guess, guessed=True)
+        return
+    await ask_number(city, citizen, english)
 
 
 def is_red_flag(message) -> bool:
@@ -100,24 +136,14 @@ async def handle(city: City, message) -> None:
                 await send(city, citizen, "Ha scelto l'opzione di lista d'attesa.")
                 return
             if not selected or not selected.get("slot_id"):
-                await send(city, citizen, "Non riconosco questa scelta. Scelga una delle offerte ricevute.")
+                # Level 3: the choice may be written in words ("la seconda", "martedì alle 12").
+                selected = await resolve_choice(city, history, citizen, message.text, use_llm=True)
+            if not selected or not selected.get("slot_id"):
+                english = writes_english(history, citizen)
+                await send(city, citizen, "Which of the offers I sent do you prefer? You can tell me the day and time, or 'the first one'." if english
+                           else "Quale delle offerte che le ho inviato preferisce? Può indicarmi giorno e ora, oppure dirmi 'la prima'.")
                 return
-            facility = selected["facility"]
-            remote = sent(history, city.agent_id, facility, "need.request ")
-            cross = cross_consent(history, city.agent_id, citizen) if remote else ""
-            consent = data.get("consent_ref", "") or cross
-            if not consent or (remote and not cross):
-                purpose = "cross_asst" if remote else "booking"
-                await send(city, citizen, f"consent purpose={purpose} Posso procedere con la prenotazione scelta? / May I proceed with the booking you chose?")
-                return
-            if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
-                if await slot_expired(city, message.need_id, history, selected):
-                    english = writes_english(history, citizen)
-                    await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=slot_expired "
-                               + ("This slot has already passed." if english else "Questo posto è ormai passato."))
-                    await rebook(city, message.need_id, citizen, frozenset({selected["slot_id"]}))
-                    return
-                await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
+            await book_choice(city, message, history, citizen, selected, data)
             return
         if kind == "consent" and data.get("consent_ref"):
             if data.get("purpose") == "cross_asst" and sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
@@ -135,7 +161,8 @@ async def handle(city: City, message) -> None:
                 # Resume the last genuine citizen choice with this consent, not data
                 # supplied by a peer or a new slot embedded in the consent response.
                 choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
-                               if row.sender == citizen and act(row.text) == "confirm"), "")
+                               if row.sender == citizen and act(row.text) == "confirm"
+                               and fields(row.text).get("offer_id")), "") or CHOSEN.get(message.need_id, "")
                 selected = offers(history, city.agent_id, citizen).get(choice)
                 if selected and selected.get("slot_id"):
                     cross = cross_consent(history, city.agent_id, citizen)

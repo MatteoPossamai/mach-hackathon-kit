@@ -14,7 +14,7 @@ from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
 
 async def search(city: City, need_id: str, history: list, citizen: str, number: str,
-                 exclude: frozenset = frozenset(), lead: str = "") -> None:
+                 exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False) -> None:
     """Verify the prescription, read the whole local world and send every fitting slot at once.
 
     ``exclude`` holds slot ids and facility ids that failed (cancelled or unreachable).
@@ -26,9 +26,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     await send(city, LEDGER, "agenda")
     await send(city, LEDGER, "rules")
     match = ("prescription_number", number)
-    ready = lambda h: fresh_reply(h, seen, "prescription", match) is not None and fresh_reply(h, seen, "agenda") is not None
+    ready = lambda h: (fresh_reply(h, seen, "prescription", match) is not None or ledger_refused(h, seen, "prescription")) \
+        and fresh_reply(h, seen, "agenda") is not None
     history = await wait_for(city, need_id, ready, LEDGER_WAIT)
-    if not ready(history):
+    if not ready(history) and not ledger_refused(history, seen, "prescription"):
         # A slow Ledger is a timeout, not a refusal: asking once more is allowed.
         if fresh_reply(history, seen, "prescription", match) is None:
             await send(city, LEDGER, f"prescription prescription_number={number}")
@@ -37,6 +38,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         history = await wait_for(city, need_id, ready, LEDGER_WAIT)
     rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
     agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
+    if guessed and (not rx or fields(rx.text).get("state") != "issued"):
+        # Our guess from the case code did not match a prescription: only now ask the citizen.
+        await ask_number(city, citizen, english)
+        return
     if not rx or not agenda:
         await send(city, citizen, "I cannot verify the prescription yet. Please try again shortly." if english
                    else "Non riesco ancora a verificare la ricetta. Riprovi tra poco.")
@@ -111,6 +116,12 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     lines = pick_offers(candidates, number, priority, 1950 - len(note))
     if lines:
         await send(city, citizen, "\n".join(lines) + "\n" + note)
+
+
+async def ask_number(city: City, citizen: str, english: bool) -> None:
+    await send(city, citizen, "data.request purpose=booking fields=prescription_number "
+               + ("Could you tell me your prescription number? I will find the best slot for you." if english
+                  else "Mi indichi il numero della ricetta: cercherò subito la soluzione più adatta a lei."))
 
 
 async def find_partners(city: City, need_id: str, citizen: str, procedure: str, priority: str, history: list) -> None:
