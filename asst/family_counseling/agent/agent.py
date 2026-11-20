@@ -181,8 +181,19 @@ _LANG_ALIASES: dict[str, str] = {
     "russian": "ru",
     "albanese": "sq",
     "albanian": "sq",
+    "georgiano": "ka",
+    "georgian": "ka",
     "urdu": "ur",
     "hindi": "hi",
+    "tagalog": "tl",
+    "filippino": "tl",
+    "filipino": "tl",
+    "bengalese": "bn",
+    "bengali": "bn",
+    "turco": "tr",
+    "turkish": "tr",
+    "polacco": "pl",
+    "polish": "pl",
 }
 _URGENT_WORDS = frozenset({"urgente", "urgenza", "urgent", "urgency", "subito", "emergenza"})
 _TOKEN_SAFE = re.compile(r"^[A-Za-z0-9_.:/@-]+$")
@@ -1641,7 +1652,7 @@ async def _on_agent_availability_request(
         parts = ["cancel"]
         if request_id:
             parts.append(f"request_id={request_id}")
-        parts.append("reason=no_slots_available")
+        parts.append("reason=no_availability")
         parts.append("Nessuno slot CONS-GIN disponibile per i criteri richiesti.")
         await _say(city, message.sender, " ".join(parts))
 

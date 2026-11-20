@@ -104,7 +104,7 @@ async def _on_agent_availability_request(
         parts = ["cancel"]
         if request_id:
             parts.append(f"request_id={request_id}")
-        parts.append("reason=no_slots_available")
+        parts.append("reason=no_availability")
         criteria = []
         if explicit_lang or nl_lang:
             criteria.append(f"lingua={lang}")
