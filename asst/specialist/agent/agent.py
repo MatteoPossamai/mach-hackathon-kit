@@ -107,11 +107,37 @@ _CLARIFY_EN = (
     "palpitations or a routine heart check? If you have chest pain or lose strength in your "
     "legs, call 112 now."
 )
+# Substrings of the lowercased citizen text. A missed red flag costs -2 (city:emergency), a
+# false alarm only skips one prescription, so the list is deliberately broad.
 _RED_FLAGS = (
     "perdita di forza alle gambe",
     "loss of strength in the legs",
     "dolore al petto",
     "chest pain",
+    "male al petto",
+    "dolore toracico",
+    "fa male il petto",
+    "petto mi fa male",
+    "oppressione al petto",
+    "peso sul petto",
+    "stretta al petto",
+    "dolore al torace",
+    "perdo forza alle gambe",
+    "forza nelle gambe",
+    "forza alle gambe",
+    "non sento le gambe",
+    "gambe deboli",
+    "debolezza alle gambe",
+    "gambe che cedono",
+    "pain in my chest",
+    "chest hurts",
+    "chest pressure",
+    "tight chest",
+    "chest tightness",
+    "legs feel weak",
+    "weak legs",
+    "can't feel my legs",
+    "legs giving way",
 )
 _DEADLINE_DAYS = {"B": 2, "D": 5}
 _RX = re.compile(r"^prescription_number-[A-Z0-9-]{4,40}$")
