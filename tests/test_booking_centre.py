@@ -10,7 +10,7 @@ from city_sdk.city import Message
 spec = importlib.util.spec_from_file_location('booking', Path(__file__).parents[1] / 'asst/booking_centre/agent/agent.py')
 booking = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(booking)
-booking.RECEIPT_WAIT = 0.05
+booking.bc_flow.RECEIPT_WAIT = 0.05
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
