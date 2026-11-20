@@ -1202,9 +1202,8 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
         if any(word in text for word in _PHYSIATRY_WORDS):
             procedure = "VIS-FIS"
         else:
-            await _say(city, peer, "unavailable" + (f" request_id={request_id}" if request_id else "")
-                       + " Questo ospedale offre visite fisiatriche (VIS-FIS). / This hospital offers "
-                       "physiatry visits (VIS-FIS).")
+            await _say(city, peer, "cancel reason=no_availability" + (f" request_id={request_id}" if request_id else "")
+                       + " Qui solo visite fisiatriche (VIS-FIS).")
             return
     if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):
         await _say(city, LEDGER, "agenda")
@@ -1218,7 +1217,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     now = _when("" if agenda is None else agenda.get("agenda_now", ""))
     world = _latest_slots(chat)
     if now is None or world is None:
-        await _say(city, peer, f"unavailable procedure={procedure}{' request_id=' + request_id if request_id else ''} Registro temporaneamente non disponibile.")
+        await _say(city, peer, f"cancel reason=no_availability procedure={procedure}{' request_id=' + request_id if request_id else ''} Registro temporaneamente non disponibile.")
         return
     page, pages = _page(world)
     while page < min(pages, _MAX_PAGE):
