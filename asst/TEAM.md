@@ -27,6 +27,13 @@ Deployer: Diego.
 4. `git push` e PR verso `main`
 5. Il deployer fa merge, `city deploy <agente>`, poi commit e push di `card.yaml`
 
+## Il Token della Sera
+Livelli, guasti, regole e messaggi della city escono nella scoreboard pubblica. Per riceverli nel terminale, con un suono a ogni dispaccio nuovo:
+```bash
+python3 asst/tools/token_watch.py --quiet-arrivals
+```
+Con `--once` stampa lo stato attuale ed esce. I dati vengono da `https://projectnandaitaly.ai/v1/scoreboard`, campo `press`.
+
 ## Chi fa cosa
 | Agente | Owner |
 |---|---|

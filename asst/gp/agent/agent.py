@@ -123,8 +123,6 @@ _RED_FLAGS = (
     "stretta al petto",
     "dolore al torace",
     "perdo forza alle gambe",
-    "forza nelle gambe",
-    "forza alle gambe",
     "non sento le gambe",
     "gambe deboli",
     "debolezza alle gambe",
@@ -171,6 +169,14 @@ async def main(need: Need, city: City) -> None:
     if message is None:
         return
     text = message.text or need.summary
+    # Emergency routing must win over clinical-advice refusal: a citizen can
+    # mention chest pain and ask for a diagnosis in the same message.
+    if role_of() == "gp" and message.sender.startswith("citizen:") and (
+        need.is_emergency or _emergency(message)
+    ):
+        case = await city.history(need_id=message.need_id)
+        await _escalate(city, message, case)
+        return
     if clinical(text):
         raise OutOfScope()
     case = await city.history(need_id=message.need_id)
@@ -220,6 +226,8 @@ def _own_street(city: City) -> str:
 
 
 async def handle(role: str, city: City, message: Message, chat: list[Message]) -> None:
+    if role == "gp" and _escalated(chat, city.agent_id):
+        return
     street = _own_street(city)
     if street and _asks_address(message):
         await city.say(message.sender, f"address={street}")
@@ -489,7 +497,29 @@ def _emergency(message: Message) -> bool:
     if understood(message).body.get("is_emergency") is True:
         return True
     lowered = message.text.lower()
-    return any(flag in lowered for flag in _RED_FLAGS)
+    # Allow ordinary wording variations without assuming all mentions of
+    # chest or leg strength are emergencies. Check a short preceding window
+    # for explicit negation ("non ho dolore al petto").
+    patterns = [re.escape(flag) for flag in _RED_FLAGS]
+    patterns.extend((r"dolore\s+(?:al|nel|sul)\s+torace",
+                     r"dolore\s+(?:al|nel|sul)\s+petto"))
+    for match in re.finditer("|".join(patterns), lowered):
+        prefix = lowered[max(0, match.start() - 32):match.start()]
+        if re.search(r"\b(?:non|nessun[ao]?|senza|no|without)\b[^,.!?;]*$", prefix):
+            continue
+        return True
+    return False
+
+
+def _escalated(chat: list[Message], agent: str) -> bool:
+    # A late Ledger reply can arrive on the same need after an escalation.
+    return any(row.sender == agent and "escalate.emergency" in words(row.text) for row in chat)
+
+
+async def _escalate(city: City, message: Message, chat: list[Message]) -> None:
+    if not _escalated(chat, city.agent_id):
+        await _say(city, message.sender,
+                   "escalate.emergency reason=red_flag Chiami subito il 112 per ricevere assistenza.")
 
 
 def _symptom(message: Message) -> str | None:
@@ -513,17 +543,15 @@ def _our_rx(chat: list[Message], agent: str) -> dict[str, str]:
 
 async def _gp(city: City, message: Message, chat: list[Message]) -> None:
     agent = city.agent_id
+    if _escalated(chat, agent):
+        return
     if message.sender == LEDGER:
         await _announce(city, message, chat, agent)
         return
     if not message.sender.startswith("citizen:"):
         return
     if _emergency(message):
-        if not _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
-            await _say(city, message.sender, "escalate.emergency reason=red_flag")
-        return
-    if _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
-        # Red flag already escalated on this need: the GP stops, nothing else is sent.
+        await _escalate(city, message, chat)
         return
     ours = _our_rx(chat, agent)
     if ours.get("prescription_number"):
@@ -539,12 +567,21 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
             + _rx_note(procedure, priority, english=_english(message.text), text=message.text, reminder=True),
         )
         return
-    code = _symptom(message)
+    # A routine symptom can coexist with a less familiar red-flag phrase.
+    # Ask the classifier about potentially relevant context before routing a
+    # routine keyword, so "palpitazioni ... dolore nel torace" cannot be
+    # silently reduced to palpitations. Known flags never wait for the model.
+    context = message.text.lower()
+    ambiguous = any(word in context for word in ("petto", "torac", "chest", "gambe", "legs"))
+    routed = await _symptom_llm(city, message.text) if ambiguous else None
+    if routed == "RED_FLAG":
+        await _escalate(city, message, chat)
+        return
+    code = _symptom(message) or routed
     if code is None:
-        code = await _symptom_llm(city, message.text)
+        code = None if ambiguous else await _symptom_llm(city, message.text)
         if code == "RED_FLAG":
-            if not _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
-                await _say(city, message.sender, "escalate.emergency reason=red_flag")
+            await _escalate(city, message, chat)
             return
     if code is None:
         # Never leave a citizen without an answer: ask once which protocol row applies.
