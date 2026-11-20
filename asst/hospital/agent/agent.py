@@ -1110,6 +1110,94 @@ async def _facility(
         await _on_checkin(city, message, chat, reports=reports)
     elif "confirm" in kind:
         await _on_confirm(city, message, chat, hold_self=hold_self)
+    elif head == "need.request" and message.sender.startswith("agent:"):
+        await _partner_request(city, message, chat)
+
+
+def _all_slot_lines(chat: list[Message]) -> list[str]:
+    lines: list[str] = []
+    for row in chat:
+        if row.sender == LEDGER and first_word(row.text) == "slots":
+            lines.extend(line for line in row.text.splitlines()[1:] if "slot_id=" in line)
+    return lines
+
+
+async def _partner_request(city: City, message: Message, chat: list[Message]) -> None:
+    """Another booking centre asks for our free slots (shortage on the ring).
+
+    The request is anonymous and so is the answer: only our own free slots, no citizen data.
+    The booking itself follows through ``confirm`` (consent included), like any local booking.
+    """
+
+    agent = city.agent_id
+    peer = message.sender
+    if any(row.sender == agent and row.recipient == peer for row in chat):
+        return  # already answered this peer on this case
+    data = fields_of(message.text)
+    body = message.body if message.type != "chat" and isinstance(message.body, dict) else {}
+    procedure = data.get("procedure") or data.get("service_type") or str(
+        body.get("procedure") or body.get("service_type") or ""
+    )
+    priority = data.get("priority") or str(body.get("priority") or "") or None
+    request_id = data.get("request_id") or str(body.get("request_id") or "")
+    if not re.fullmatch(r"[A-Z]{2,5}-[A-Z]{2,5}", procedure or ""):
+        return
+    if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):
+        await _say(city, LEDGER, "agenda")
+    if not _asked(chat, agent, procedure, 1):
+        await _say(city, LEDGER, f"world procedure={procedure} page=1")
+    chat = await _until(
+        city, message.need_id, chat,
+        lambda rows: _has_agenda(rows) and _latest_slots(rows) is not None,
+    )
+    agenda = _ledger(chat, "agenda")
+    now = _when("" if agenda is None else agenda.get("agenda_now", ""))
+    world = _latest_slots(chat)
+    if now is None or world is None:
+        return
+    page, pages = _page(world)
+    while page < min(pages, _MAX_PAGE):
+        page += 1
+        if not _asked(chat, agent, procedure, page):
+            await _say(city, LEDGER, f"world procedure={procedure} page={page}")
+        chat = await _until(
+            city, message.need_id, chat,
+            lambda rows, p=page: any(
+                row.sender == LEDGER and first_word(row.text) == "slots"
+                and _page(row.text)[0] == p for row in rows
+            ),
+        )
+    chosen = fitting(
+        _all_slot_lines(chat), now=now, priority=priority,
+        lang=data.get("lang", "it"), facility=agent, procedure=procedure,
+    )[:3]
+    tail = f" request_id={request_id}" if request_id else ""
+    if not chosen:
+        await _say(
+            city, peer,
+            f"unavailable procedure={procedure}{tail} Al momento non abbiamo posti "
+            "compatibili con questa richiesta. Riprovate più tardi.",
+        )
+        return
+    for slot in chosen:
+        await _say(city, peer, _offer_line(slot, None, priority) + tail)
+
+
+def _en(chat: list[Message]) -> bool:
+    return _lang(chat) == "en"
+
+
+_RECEIPT_IT = (
+    " Prenotazione confermata. Al suo arrivo in ospedale faccia il check-in con questo "
+    "numero di prenotazione; porti tessera sanitaria e ricetta. La struttura è accessibile "
+    "in carrozzina."
+)
+_RECEIPT_EN = (
+    " Booking confirmed. When you arrive at the hospital, check in with this booking "
+    "number; bring your health card and prescription. The building is wheelchair accessible."
+)
+_CHECKIN_IT = " Check-in registrato: la attendiamo in reparto, verrà chiamato a breve."
+_CHECKIN_EN = " Check-in done: please wait in the ward, you will be called shortly."
 
 
 def _booking_of(chat: list[Message], agent: str, slot_id: str) -> tuple[str, str, str | None]:
@@ -1245,7 +1333,11 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     token = f"booking_id={booking_id}"
     if _we(chat, city.agent_id, token, to=target, word="booking.receipt"):
         return
-    await _say(city, target, f"booking.receipt booking_id={booking_id} ledger_ref={ledger_ref}")
+    await _say(
+        city, target,
+        f"booking.receipt booking_id={booking_id} ledger_ref={ledger_ref}"
+        + (_RECEIPT_EN if _en(chat) else _RECEIPT_IT),
+    )
 
 
 async def _on_refused(
@@ -1289,6 +1381,18 @@ async def _on_checkin(city: City, message: Message, chat: list[Message], *, repo
     reply, fresh = found
     if first_word(reply.text) == "checked_in":
         await _on_checked_in(city, reply, fresh, reports=reports)
+    elif first_word(reply.text) == "refused" and not _we(
+        fresh, city.agent_id, token, to=citizen, word="refused"
+    ):
+        # Never silent: the citizen learns why and what to do next.
+        reason = fields_of(reply.text).get("reason", "")
+        await _say(
+            city, citizen,
+            f"refused booking_id={booking_id}"
+            + (f" reason={reason}" if reason else "")
+            + " Non riesco a registrare il check-in con questo numero di prenotazione. "
+            "Controlli il numero sulla ricevuta o contatti il centro prenotazioni.",
+        )
 
 
 async def _on_checked_in(
@@ -1302,7 +1406,10 @@ async def _on_checked_in(
     if reports and not _we(chat, city.agent_id, token, to=LEDGER, word="report"):
         await _say(city, LEDGER, f"report booking_id={booking_id} outcome_code=VISIT")
     if citizen and not _we(chat, city.agent_id, token, to=citizen, word="checkin"):
-        await _say(city, citizen, f"checkin booking_id={booking_id}")
+        await _say(
+            city, citizen,
+            f"checkin booking_id={booking_id}" + (_CHECKIN_EN if _en(chat) else _CHECKIN_IT),
+        )
     if not reports:
         return
     found = await _await_line(city, message.need_id, chat, "reported", token, op="report")
