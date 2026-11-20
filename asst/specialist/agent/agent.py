@@ -357,14 +357,25 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
         return False
 
     discovered: set[str] = set()
-    for query in ("booking_centre", "facility", "gp"):
+    for query in ("booking_centre", "facility"):
         try:
             peers = await city.find(query)
         except CapError:
             continue
         for peer in peers:
-            if peer.agent_id:
-                discovered.add(peer.agent_id)
+            if not peer.agent_id:
+                continue
+            # Level 8 impostor hardening: only trust peers with valid care roles.
+            if peer.role and peer.role not in {
+                "booking_centre",
+                "facility",
+                "hospital",
+                "specialist_care",
+                "family_counseling",
+                "gp",
+            }:
+                continue
+            discovered.add(peer.agent_id)
 
     if discovered:
         _TRUSTED_PEERS.clear()
@@ -843,6 +854,63 @@ def _normalize_day(raw: str) -> str:
     return _DAY_ALIASES.get(cleaned, cleaned)
 
 
+def _extract_nl_prefs(text: str) -> tuple[str | None, str | None, set[str] | None]:
+    """Extract (lang, gender, days) from natural-language IT/EN preferences (Levels 3 & 5)."""
+    lowered = text.lower()
+    toks = words(text)
+
+    lang: str | None = None
+    if toks & {"english", "inglese"}:
+        lang = "en"
+    elif toks & {"italian", "italiano"}:
+        lang = "it"
+
+    gender: str | None = None
+    if any(
+        phrase in lowered
+        for phrase in ("dottoressa", "medico donna", "donna", "femmina", "female doctor", "female", "woman")
+    ):
+        gender = "f"
+    elif any(
+        phrase in lowered
+        for phrase in ("medico uomo", "dottore uomo", "maschio", "male doctor", "male")
+    ):
+        gender = "m"
+
+    days: set[str] = set()
+    for alias, canonical in _DAY_ALIASES.items():
+        if len(alias) >= 4 and alias in toks:
+            days.add(canonical)
+    return lang, gender, (days or None)
+
+
+def _diversify_by_doctor(slots: list[dict[str, str]], limit: int = 4) -> list[dict[str, str]]:
+    """Round-robin across doctors (e.g. s1 and s2) so anonymous searches get both profiles."""
+    by_doc: dict[str, list[dict[str, str]]] = {}
+    doc_order: list[str] = []
+    for slot in slots:
+        doc = slot.get("doctor_id", "")
+        if doc not in by_doc:
+            by_doc[doc] = []
+            doc_order.append(doc)
+        by_doc[doc].append(slot)
+    result: list[dict[str, str]] = []
+    idx = 0
+    while len(result) < limit:
+        added = False
+        for doc in doc_order:
+            bucket = by_doc[doc]
+            if idx < len(bucket):
+                result.append(bucket[idx])
+                added = True
+                if len(result) >= limit:
+                    break
+        if not added:
+            break
+        idx += 1
+    return result
+
+
 def _speaks(doctor_id: str, lang: str) -> bool:
     if not lang:
         return True
@@ -1025,11 +1093,13 @@ async def _on_agent_availability_request(
     requested_proc = _safe_token(fields.get("procedure") or fields.get("service_type")) or PRIMARY_PROCEDURE
     request_id = _safe_token(fields.get("request_id"))
     priority = _safe_token(fields.get("priority")) or None
-    lang = _safe_token(fields.get("lang")) or "it"
+    nl_lang, nl_gender, nl_days = _extract_nl_prefs(message.text)
+    explicit_lang = _safe_token(fields.get("lang"))
+    lang = explicit_lang or nl_lang or "it"
     gender_raw = _safe_token(fields.get("gender") or fields.get("gender_preference"))
-    gender = gender_raw if gender_raw in {"m", "f"} else None
+    gender = gender_raw if gender_raw in {"m", "f"} else nl_gender
     days_raw = fields.get("days") or fields.get("day") or ""
-    days = {d.strip().lower() for d in re.split(r"[/,|]", days_raw) if d.strip()} or None
+    days = {d.strip().lower() for d in re.split(r"[/,|]", days_raw) if d.strip()} or nl_days
 
     # Serve both VIS-CARD and CTRL-CARD cardiology procedures.
     if requested_proc not in SUPPORTED_PROCEDURES:
@@ -1047,7 +1117,9 @@ async def _on_agent_availability_request(
     if now is None or world is None:
         return
 
-    cache = _offered_cache(f"{key}:{message.sender}")
+    # Scope cache by request_id so Level 6/7 rebooking requests always get fresh available slots.
+    cache_key = f"{key}:{message.sender}:{request_id or message.msg_id}"
+    cache = _offered_cache(cache_key)
     slots = _fitting_slots(
         world,
         now=now,
@@ -1085,9 +1157,14 @@ async def _on_agent_availability_request(
 
     fresh_slots = [s for s in slots if s["slot_id"] not in cache]
     if fresh_slots:
-        # Send one offer per message to peer booking_centres so every partner parser
-        # (including single-offer-per-message remote_offers) ingests each candidate cleanly.
-        for slot in fresh_slots[:3]:
+        # On anonymous searches (no explicit gender/lang), diversify across s1 and s2
+        # so the booking centre can satisfy any combined citizen preference (Level 5).
+        selected = (
+            _diversify_by_doctor(fresh_slots, limit=4)
+            if (not explicit_lang and not gender)
+            else fresh_slots[:3]
+        )
+        for slot in selected:
             line = _offer_line(
                 slot,
                 agent_id=city.agent_id,
@@ -1120,14 +1197,16 @@ async def _on_citizen_message(
     english = _is_english(chat, message.text)
     lead = _empathy_lead(english=english, anxious=_is_anxious(chat, message.text))
 
+    committed = _latest_ledger(chat, "committed")
+    committed_bk = _safe_token(fields_of(committed.text).get("booking_id")) if committed else ""
     reported = _latest_ledger(chat, "reported")
-    if reported is not None:
-        bk = _safe_token(fields_of(reported.text).get("booking_id"))
+    reported_bk = _safe_token(fields_of(reported.text).get("booking_id")) if reported else ""
+    if reported_bk and (not committed_bk or reported_bk == committed_bk):
         reply = (
-            f"{lead}Your cardiology visit (booking_id={bk}) is already completed and the report "
+            f"{lead}Your cardiology visit (booking_id={reported_bk}) is already completed and the report "
             "has been filed. To book a new visit, please contact the booking centre."
             if english
-            else f"{lead}La sua visita cardiologica (booking_id={bk}) risulta già completata e "
+            else f"{lead}La sua visita cardiologica (booking_id={reported_bk}) risulta già completata e "
             "refertata. Per un nuovo appuntamento può rivolgersi al centro prenotazioni."
         )
         await _say(city, message.sender, reply, allowed_citizen=message.sender)
@@ -1137,21 +1216,18 @@ async def _on_citizen_message(
         await _offer_direct_to_citizen(city, message, chat, key, number)
         return
 
-    committed = _latest_ledger(chat, "committed")
-    if committed is not None:
-        bk = _safe_token(fields_of(committed.text).get("booking_id"))
-        if bk:
-            reply = (
-                f"{lead}Your cardiology appointment (booking_id={bk}) is confirmed. "
-                f"When you arrive at the clinic, please send 'checkin booking_id={bk}' "
-                "and I will register your arrival right away."
-                if english
-                else f"{lead}La sua prenotazione cardiologica (booking_id={bk}) è confermata. "
-                f"Quando arriva in ambulatorio, mi scriva 'checkin booking_id={bk}' "
-                "e registrerò subito il suo ingresso."
-            )
-            await _say(city, message.sender, reply, allowed_citizen=message.sender)
-            return
+    if committed_bk and not _booking_has_report(chat, committed_bk):
+        reply = (
+            f"{lead}Your cardiology appointment (booking_id={committed_bk}) is confirmed. "
+            f"When you arrive at the clinic, please send 'checkin booking_id={committed_bk}' "
+            "and I will register your arrival right away."
+            if english
+            else f"{lead}La sua prenotazione cardiologica (booking_id={committed_bk}) è confermata. "
+            f"Quando arriva in ambulatorio, mi scriva 'checkin booking_id={committed_bk}' "
+            "e registrerò subito il suo ingresso."
+        )
+        await _say(city, message.sender, reply, allowed_citizen=message.sender)
+        return
 
     reply = (
         f"{lead}Welcome to the Cardiology Specialist Clinic (VIS-CARD / CTRL-CARD). "
@@ -1240,11 +1316,12 @@ async def _offer_direct_to_citizen(
         return
 
     fields = msg_fields(message)
-    lang = _safe_token(fields.get("lang")) or ("en" if english else "it")
+    nl_lang, nl_gender, nl_days = _extract_nl_prefs(message.text)
+    lang = _safe_token(fields.get("lang")) or nl_lang or ("en" if english else "it")
     gender_raw = _safe_token(fields.get("gender") or fields.get("gender_preference"))
-    gender = gender_raw if gender_raw in {"m", "f"} else None
+    gender = gender_raw if gender_raw in {"m", "f"} else nl_gender
     days_raw = fields.get("days") or fields.get("day") or ""
-    days = {d.strip().lower() for d in re.split(r"[/,|]", days_raw) if d.strip()} or None
+    days = {d.strip().lower() for d in re.split(r"[/,|]", days_raw) if d.strip()} or nl_days
 
     slots = _fitting_slots(
         world,
@@ -1333,11 +1410,12 @@ def _our_offer(chat: list[Message], agent: str, offer_id: str) -> dict[str, str]
 
 def _booking_context(
     chat: list[Message], agent: str, slot_id: str
-) -> tuple[str, str, str | None, str]:
-    """Return ``(requester, consent_ref, prescription_number, offer_id)`` for ``slot_id``."""
+) -> tuple[str, str, str | None, str, str]:
+    """Return ``(requester, consent_ref, prescription_number, offer_id, cross_asst_consent_ref)``."""
     token = f"slot_id={slot_id}"
     requester = ""
     consent = ""
+    cross_consent = ""
     number: str | None = None
     offer_id = ""
     for row in chat:
@@ -1349,20 +1427,28 @@ def _booking_context(
             if "confirm" in words(row.text) and row.sender not in (LEDGER, agent):
                 requester = row.sender
                 consent = _safe_token(fields.get("consent_ref")) or consent
+                cross_consent = (
+                    _safe_token(fields.get("cross_asst_consent_ref") or fields.get("cross_asst_consent"))
+                    or cross_consent
+                )
                 number = _safe_token(fields.get("prescription_number")) or number
                 offer_id = row_offer or offer_id
             elif row.sender == agent and row.text.strip().startswith("hold "):
                 consent = _safe_token(fields.get("consent_ref")) or consent
+                cross_consent = (
+                    _safe_token(fields.get("cross_asst_consent_ref")) or cross_consent
+                )
                 number = _safe_token(fields.get("prescription_number")) or number
                 requester = requester or _safe_token(fields.get("citizen"))
             elif row.sender == agent and "offer" in words(row.text):
                 offer_id = row_offer or offer_id
-    return requester, consent, number, offer_id
+    return requester, consent, number, offer_id, cross_consent
 
 
-def _latest_hold_info(chat: list[Message], agent: str) -> tuple[str, str, str | None]:
+def _latest_hold_info(chat: list[Message], agent: str) -> tuple[str, str, str | None, str]:
     slot = ""
     consent = ""
+    cross_consent = ""
     number: str | None = None
     for row in chat:
         if row.sender != agent or row.recipient != LEDGER:
@@ -1372,8 +1458,9 @@ def _latest_hold_info(chat: list[Message], agent: str) -> tuple[str, str, str | 
         fields = fields_of(row.text)
         slot = _safe_token(fields.get("slot_id")) or slot
         consent = _safe_token(fields.get("consent_ref")) or consent
+        cross_consent = _safe_token(fields.get("cross_asst_consent_ref")) or cross_consent
         number = _safe_token(fields.get("prescription_number")) or number
-    return slot, consent, number
+    return slot, consent, number, cross_consent
 
 
 def _hold_slot(chat: list[Message], agent: str, hold_id: str) -> str:
@@ -1483,6 +1570,36 @@ async def _on_confirm(city: City, message: Message, chat: list[Message]) -> None
     if first_word(c_reply.text) == "committed":
         await _on_committed(city, c_reply, c_fresh)
     elif first_word(c_reply.text) == "refused":
+        # Level 6 recovery: if the hold expired before commit, retry one fresh hold + commit.
+        if _extract_refusal_reason(c_reply.text) == "HOLD_EXPIRED":
+            retry_parts = ["hold", f"slot_id={slot}"]
+            if citizen:
+                retry_parts.append(f"citizen={citizen}")
+            if number:
+                retry_parts.append(f"prescription_number={number}")
+            if consent:
+                retry_parts.append(f"consent_ref={consent}")
+            if cross_consent:
+                retry_parts.append(f"cross_asst_consent_ref={cross_consent}")
+            if await _say(city, LEDGER, " ".join(retry_parts)):
+                re_held = await _await_line(
+                    city, message.need_id, c_fresh, "held", f"slot_id={slot}", op="hold"
+                )
+                if re_held is not None and first_word(re_held[0].text) == "held":
+                    new_hid = _safe_token(fields_of(re_held[0].text).get("hold_id"))
+                    if new_hid and new_hid != hold_id:
+                        await _on_held(city, re_held[0], re_held[1])
+                        re_done = await _await_line(
+                            city,
+                            message.need_id,
+                            re_held[1],
+                            "committed",
+                            f"booking_id={new_hid}",
+                            op="commit",
+                        )
+                        if re_done is not None and first_word(re_done[0].text) == "committed":
+                            await _on_committed(city, re_done[0], re_done[1])
+                            return
         await _on_booking_refused(
             city, c_reply, c_fresh, slot=slot, offer_id=offer_id, requester=message.sender
         )
@@ -1513,11 +1630,12 @@ async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
     if _our_commit(chat, city.agent_id, hold_id):
         return
 
-    _, consent, number, _ = _booking_context(chat, city.agent_id, slot)
+    _, consent, number, _, cross_consent = _booking_context(chat, city.agent_id, slot)
     if not consent:
-        _, held_consent, held_number = _latest_hold_info(chat, city.agent_id)
+        _, held_consent, held_number, held_cross = _latest_hold_info(chat, city.agent_id)
         consent = held_consent
         number = number or held_number
+        cross_consent = cross_consent or held_cross
     need_ref = _safe_token(fields.get("need_id") or message.need_id)
     if not consent and need_ref.startswith("N-"):
         consent = f"cons-{need_ref}-booking"
@@ -1534,6 +1652,8 @@ async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
     ]
     if number:
         parts.append(f"prescription_number={number}")
+    if cross_consent:
+        parts.append(f"cross_asst_consent_ref={cross_consent}")
     await _say(city, LEDGER, " ".join(parts))
 
 
@@ -1547,7 +1667,9 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     slot = _safe_token(fields.get("slot_id")) or _hold_slot(
         chat, city.agent_id, _safe_token(fields.get("hold_id")) or booking_id
     )
-    requester, _, _, _ = _booking_context(chat, city.agent_id, slot) if slot else ("", "", None, "")
+    requester, _, _, _, _ = (
+        _booking_context(chat, city.agent_id, slot) if slot else ("", "", None, "", "")
+    )
     target = requester or _citizen(chat)
     if not target:
         return
@@ -1573,9 +1695,9 @@ async def _on_booking_refused(
 ) -> None:
     agent = city.agent_id
     if not slot:
-        slot, _, _ = _latest_hold_info(chat, agent)
+        slot, _, _, _ = _latest_hold_info(chat, agent)
     if slot:
-        ctx_req, _, _, ctx_offer = _booking_context(chat, agent, slot)
+        ctx_req, _, _, ctx_offer, _ = _booking_context(chat, agent, slot)
         requester = requester or ctx_req
         offer_id = offer_id or ctx_offer
     target = requester or _citizen(chat)
@@ -1615,6 +1737,21 @@ def _checked_in_booking_id(chat: list[Message]) -> str:
     return _safe_token(fields_of(row.text).get("booking_id"))
 
 
+def _checked_in_index(chat: list[Message], booking_id: str) -> int:
+    token = f"booking_id={booking_id}"
+    found = -1
+    for idx, row in enumerate(chat):
+        if row.sender == LEDGER and first_word(row.text) == "checked_in" and token in row.text.split():
+            found = idx
+    return found
+
+
+def _booking_has_report(chat: list[Message], booking_id: str) -> bool:
+    if not booking_id:
+        return False
+    return _latest_ledger(chat, "reported", f"booking_id={booking_id}") is not None
+
+
 def _reported_booking_id(chat: list[Message]) -> str:
     row = _latest_ledger(chat, "reported")
     if row is None:
@@ -1622,25 +1759,30 @@ def _reported_booking_id(chat: list[Message]) -> str:
     return _safe_token(fields_of(row.text).get("booking_id"))
 
 
-def _asked_report_consent(chat: list[Message], agent: str) -> bool:
-    return any(
-        row.sender == agent
-        and row.recipient.startswith("citizen:")
-        and "purpose=report_sharing" in row.text.split()
-        and "consent" in words(row.text)
-        for row in chat
-    )
+def _asked_report_consent(chat: list[Message], agent: str, booking_id: str = "") -> bool:
+    start = _checked_in_index(chat, booking_id) if booking_id else -1
+    for idx, row in enumerate(chat):
+        if idx <= start:
+            continue
+        if (
+            row.sender == agent
+            and row.recipient.startswith("citizen:")
+            and "purpose=report_sharing" in row.text.split()
+            and "consent" in words(row.text)
+        ):
+            return True
+    return False
 
 
 def _awaiting_report_consent(chat: list[Message], agent: str) -> bool:
-    if _reported_booking_id(chat):
-        return False
     booking_id = _checked_in_booking_id(chat)
     if not booking_id:
         return False
+    if _booking_has_report(chat, booking_id):
+        return False
     if _we(chat, agent, f"booking_id={booking_id}", to=LEDGER, word="report"):
         return False
-    return _asked_report_consent(chat, agent)
+    return _asked_report_consent(chat, agent, booking_id)
 
 
 def _consent_explicitly_declined(fields: dict[str, str]) -> bool:
@@ -1652,10 +1794,13 @@ def _consent_explicitly_declined(fields: dict[str, str]) -> bool:
     return False
 
 
-def _report_consent_ref(chat: list[Message], agent: str) -> str:
-    """Return a citizen's ``report_sharing`` consent_ref if already granted."""
+def _report_consent_ref(chat: list[Message], agent: str, booking_id: str = "") -> str:
+    """Return a citizen's ``report_sharing`` consent_ref granted for the current booking."""
+    start = _checked_in_index(chat, booking_id) if booking_id else -1
     asked_idx = -1
     for idx, row in enumerate(chat):
+        if idx <= start:
+            continue
         if (
             row.sender == agent
             and row.recipient.startswith("citizen:")
@@ -1663,6 +1808,8 @@ def _report_consent_ref(chat: list[Message], agent: str) -> str:
         ):
             asked_idx = idx
     for idx, row in enumerate(chat):
+        if idx <= start:
+            continue
         if not row.sender.startswith("citizen:"):
             continue
         fields = msg_fields(row)
@@ -1675,10 +1822,32 @@ def _report_consent_ref(chat: list[Message], agent: str) -> str:
     return ""
 
 
-def _booking_prescription_number(chat: list[Message]) -> str:
+def _booking_prescription_number(chat: list[Message], booking_id: str = "") -> str:
+    """Return the prescription_number associated with ``booking_id`` (including CTRL-CARD follow-ups)."""
+    if booking_id:
+        for row in reversed(chat):
+            toks = row.text.split()
+            if f"hold_id={booking_id}" in toks or f"booking_id={booking_id}" in toks:
+                num = _safe_token(msg_fields(row).get("prescription_number"))
+                if num:
+                    return num
+        slot = ""
+        for row in reversed(chat):
+            if f"hold_id={booking_id}" in row.text.split():
+                slot = _safe_token(fields_of(row.text).get("slot_id"))
+                if slot:
+                    break
+        if slot:
+            for row in reversed(chat):
+                if f"slot_id={slot}" in row.text.split():
+                    num = _safe_token(msg_fields(row).get("prescription_number"))
+                    if num:
+                        return num
     for row in reversed(chat):
+        if row.sender == LEDGER and first_word(row.text) == "prescribed":
+            continue
         num = _safe_token(msg_fields(row).get("prescription_number"))
-        if num and not num.startswith("prescription_number-FU-"):
+        if num:
             return num
     return ""
 
@@ -1756,13 +1925,13 @@ async def _on_checkin(city: City, message: Message, chat: list[Message]) -> None
         await _say(city, citizen, prompt, allowed_citizen=citizen)
         return
 
-    if _reported_booking_id(chat) == booking_id:
+    if _booking_has_report(chat, booking_id):
         reported_row = _latest_ledger(chat, "reported", f"booking_id={booking_id}")
         if reported_row is not None:
             await _on_reported(city, reported_row, chat)
         return
 
-    if _checked_in_booking_id(chat) == booking_id and _asked_report_consent(chat, agent):
+    if _checked_in_booking_id(chat) == booking_id and _asked_report_consent(chat, agent, booking_id):
         remind = (
             f"consent purpose=report_sharing {lead}Your check-in is already recorded. "
             "May I share your visit report (report_sharing)? If you prefer to keep it private, "
@@ -1829,19 +1998,19 @@ async def _after_checked_in(city: City, booking_id: str, chat: list[Message]) ->
         )
         await _say(city, citizen, msg, allowed_citizen=citizen)
 
-    # Prefetch the original prescription while waiting for report_sharing consent
+    # Prefetch the original prescription for THIS booking while waiting for report_sharing consent
     # so follow-up (CTRL-CARD) decision has zero extra round-trip latency when consent arrives.
-    orig_rx = _booking_prescription_number(chat)
-    if orig_rx and _ledger_fields(chat, "prescription") is None:
+    orig_rx = _booking_prescription_number(chat, booking_id)
+    if orig_rx and _latest_ledger(chat, "prescription", f"prescription_number={orig_rx}") is None:
         if not _we(chat, agent, f"prescription_number={orig_rx}", to=LEDGER, word="prescription"):
             await _say(city, LEDGER, f"prescription prescription_number={orig_rx}")
 
-    existing_consent = _report_consent_ref(chat, agent)
+    existing_consent = _report_consent_ref(chat, agent, booking_id)
     if existing_consent:
         await _file_report(city, booking_id, citizen, chat, consent_ref=existing_consent)
         return
 
-    if not _asked_report_consent(chat, agent):
+    if not _asked_report_consent(chat, agent, booking_id):
         ask = (
             f"consent purpose=report_sharing {lead}Your visit is complete. May I share your "
             "report on the health record (report_sharing)? If you prefer not to share it, "
@@ -1884,9 +2053,14 @@ async def _file_report(
             await _on_reported(city, reported, chat)
         return
 
-    # Inspect the original prescription (if known) to determine whether a CTRL-CARD follow-up applies.
-    rx_info = _ledger_fields(chat, "prescription")
-    orig_rx = _booking_prescription_number(chat)
+    # Inspect the prescription for THIS booking so CTRL-CARD follow-ups never loop.
+    orig_rx = _booking_prescription_number(chat, booking_id)
+    rx_row = (
+        _latest_ledger(chat, "prescription", f"prescription_number={orig_rx}")
+        if orig_rx
+        else _latest_ledger(chat, "prescription")
+    )
+    rx_info = None if rx_row is None else fields_of(rx_row.text)
     if orig_rx and rx_info is None:
         if not _we(chat, agent, f"prescription_number={orig_rx}", to=LEDGER, word="prescription"):
             await _say(city, LEDGER, f"prescription prescription_number={orig_rx}")
@@ -1894,9 +2068,11 @@ async def _file_report(
             city,
             need_id,
             chat,
-            lambda rows: _ledger_fields(rows, "prescription") is not None,
+            lambda rows: _latest_ledger(rows, "prescription", f"prescription_number={orig_rx}")
+            is not None,
         )
-        rx_info = _ledger_fields(chat, "prescription")
+        rx_row = _latest_ledger(chat, "prescription", f"prescription_number={orig_rx}")
+        rx_info = None if rx_row is None else fields_of(rx_row.text)
 
     follow_up_rx = ""
     if _needs_follow_up(chat, rx_info):
