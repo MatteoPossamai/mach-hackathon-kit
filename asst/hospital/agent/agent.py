@@ -784,8 +784,11 @@ def _offer_line(slot: dict[str, str], number: str | None, priority: str | None) 
 def _our_offer(chat: list[Message], agent: str, offer_id: str) -> dict[str, str]:
     token = f"offer_id={offer_id}"
     for row in chat:
-        if row.sender == agent and token in row.text.split() and "offer" in words(row.text):
-            return fields_of(row.text)
+        if row.sender != agent:
+            continue
+        for line in row.text.splitlines():
+            if first_word(line) == "offer" and token in line.split():
+                return fields_of(line)
     return {}
 
 
@@ -1229,20 +1232,43 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
                 and _page(row.text)[0] == p for row in rows
             ),
         )
+    world_languages = {}
+    for row in chat:
+        if row.sender != LEDGER or first_word(row.text) != "slots":
+            continue
+        for line in row.text.splitlines()[1:]:
+            attrs = fields_of(line)
+            raw = attrs.get("languages") or attrs.get("doctor_lang")
+            if attrs.get("doctor_id") and raw:
+                world_languages[attrs["doctor_id"]] = set(re.findall(r"\b[a-z]{2,3}\b", raw))
+    lang = data.get("lang", "it")
     chosen = fitting(
         _all_slot_lines(chat), now=now, priority=priority,
-        lang=data.get("lang", "it"), facility=agent, procedure=procedure,
-    )[:5]
+        lang=lang, gender=data.get("gender"), facility=agent, procedure=procedure,
+    )
+    requested_days = set(data.get("days", "").split("/")) - {""}
+    lines = []
     tail = f" request_id={request_id}" if request_id else ""
-    if not chosen:
-        await _say(
-            city, peer,
-            f"unavailable procedure={procedure}{tail} Al momento non abbiamo posti "
-            "compatibili con questa richiesta. Riprovate più tardi.",
-        )
-        return
     for slot in chosen:
-        await _say(city, peer, _offer_line(slot, None, priority) + tail)
+        if requested_days and slot.get("day") not in requested_days:
+            continue
+        doctor_id = slot["doctor_id"]
+        known_languages, gender, _ = _DOCTORS[doctor_id.rsplit("-", 1)[-1]]
+        languages = world_languages.get(doctor_id, known_languages - {"*"})
+        if lang not in languages:
+            continue
+        line = _offer_line(slot, None, priority)
+        language_list = "/".join(sorted(languages))
+        line += f" doctor_lang={language_list} doctor_gender={gender}"
+        if procedure == "VIS-FIS":
+            line += " wheelchair=true"
+        line += tail
+        if sum(len(offer) + 1 for offer in lines) + len(line) > 2000:
+            break
+        lines.append(line)
+        if len(lines) == 5:
+            break
+    await _say(city, peer, "\n".join(lines) or f"cancel reason=no_availability{tail}")
 
 
 def _en(chat: list[Message]) -> bool:

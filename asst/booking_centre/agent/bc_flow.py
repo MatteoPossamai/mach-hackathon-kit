@@ -125,7 +125,7 @@ async def ask_number(city: City, citizen: str, english: bool) -> None:
 
 
 async def find_partners(city: City, need_id: str, citizen: str, procedure: str, priority: str, history: list) -> None:
-    # Search anonymously: no citizen ID, prescription, or personal preferences leave the ASST.
+    # Search anonymously with structured scheduling criteria only.
     capability = CAPABILITY.get(procedure, "")
     peers = []
     for query in ([capability] if capability else []) + [procedure]:
@@ -138,6 +138,17 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     request_id = "search-" + hashlib.sha256(need_id.encode()).hexdigest()[:16]
     contacted = 0
     english = writes_english(history, citizen)
+    prefs = await citizen_preferences(city, history, citizen)
+    lang = prefs.get("lang", "")
+    gender = prefs.get("gender_preference", prefs.get("gender", ""))
+    days = prefs.get("days", "")
+    criteria = ""
+    if re.fullmatch(r"[a-z]{2,3}", lang):
+        criteria += f" lang={lang}"
+    if gender in {"m", "f"}:
+        criteria += f" gender={gender}"
+    if days and all(day in DAY_CODES for day in days.split("/")):
+        criteria += f" days={days}"
     for peer in peers:
         if contacted >= 12:
             break
@@ -146,7 +157,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         caps = tuple(getattr(peer, "capabilities", ()) or ())
         if capability and caps and capability not in caps:
             continue
-        if await send(city, peer.agent_id, f"need.request service_type={capability or procedure} procedure={procedure} priority={priority} request_id={request_id}"):
+        if await send(city, peer.agent_id, f"need.request service_type={capability or procedure} procedure={procedure} priority={priority} request_id={request_id}{criteria}"):
             contacted += 1
     if contacted:
         await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
@@ -182,18 +193,27 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
     for row in history:
         if not row.sender.startswith("agent:") or act(row.text) != "offer":
             continue
-        request = next((fields(previous.text) for previous in history
+        request = next((fields(previous.text) for previous in reversed(history)
                         if previous.sender == city.agent_id and previous.recipient == row.sender
                         and act(previous.text) == "need.request"), None)
-        item = fields(row.text)
         if not request or request.get("procedure") != procedure or request.get("priority") != priority:
             continue
-        if item.get("request_id") and item["request_id"] != request.get("request_id"):
-            continue
-        if item.get("facility") != row.sender:
-            continue
-        if item.get("slot_id") not in cancelled and valid_slot(item, procedure, priority, now, prefs, assume_known=False):
-            candidates.append(item)
+        for line in row.text.splitlines():
+            if act(line) != "offer":
+                continue
+            item = fields(line)
+            if item.get("request_id") and item["request_id"] != request.get("request_id"):
+                continue
+            if item.get("facility") != row.sender or item.get("slot_id") in cancelled:
+                continue
+            for key, alias in (("languages", "doctor_lang"), ("gender", "doctor_gender")):
+                if alias in item:
+                    item.setdefault(key, item[alias])
+            at = time(item.get("at", item.get("agenda_date", "")))
+            if at and not (item.get("day") or item.get("agenda_day")):
+                item["day"] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[at.weekday()]
+            if valid_slot(item, procedure, priority, now, prefs, assume_known=False):
+                candidates.append(item)
     lines = []
     for item in candidates:
         line = offer_line(item, number, priority)
@@ -322,7 +342,7 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
             number = ""
     text = (f"confirm offer_id={selected['offer_id']} slot_id={selected['slot_id']} "
             f"prescription_number={number} citizen={citizen} consent_ref={consent}")
-    if cross and cross != consent:
+    if cross:
         text += f" cross_asst_consent_ref={cross}"
     try:
         seen = frozenset(row.msg_id for row in await city.history(need_id=need_id))

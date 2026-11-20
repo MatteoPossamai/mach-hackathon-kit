@@ -109,6 +109,21 @@ class HospitalTest(unittest.TestCase):
         asyncio.run(hospital._partner_request(city, incoming, city.rows))
         self.assertTrue(any(to == 'agent:team/booking' and 'request_id=Q2' in text for to, text in city.out))
 
+    def test_partner_rare_language_comes_from_the_ledger(self):
+        incoming = msg('agent:team/booking', 'need.request procedure=VIS-FIS priority=B lang=ka request_id=Q1')
+        agenda = msg(hospital.LEDGER, 'agenda agenda_now=2026-11-23T00:00:00+00:00', mid='agenda')
+        slots = ('slots page=1/1\n'
+                 'slot_id=S1 facility=agent:team/hospital doctor_id=doctor-h3 procedure=VIS-FIS '
+                 'at=2026-11-24T12:00:00+00:00 day=tue free=1')
+        city = City([incoming, agenda, msg(hospital.LEDGER, slots)])
+        asyncio.run(hospital._partner_request(city, incoming, city.rows))
+        self.assertEqual(city.out[-1], ('agent:team/booking', 'cancel reason=no_availability request_id=Q1'))
+        city = City([incoming, agenda, msg(hospital.LEDGER, slots + '\ndoctor_id=doctor-h3 languages=it/ka')])
+        asyncio.run(hospital._partner_request(city, incoming, city.rows))
+        replies = [text for recipient, text in city.out if recipient == incoming.sender]
+        self.assertEqual(len(replies), 1)
+        self.assertIn('doctor_lang=it/ka', replies[0])
+
 if __name__ == '__main__': unittest.main()
 
 

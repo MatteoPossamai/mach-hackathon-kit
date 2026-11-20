@@ -195,15 +195,29 @@ class JourneyTest(unittest.TestCase):
                     if to == 'city:ledger' and text.startswith('world '):
                         self.rows[-1] = msg('city:ledger', 'slots page=1/1', self.agent_id)
             city = PartnerCity()
-            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            booking.RELAYED.clear()
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en days=fri')
             search = next(text for to, text in city.out if to == 'agent:partner/h')
+            request_id = booking.fields(search)['request_id']
             self.assertNotIn('citizen:1', search)
-            await city.receive('agent:partner/h', 'offer slot_id=s2 doctor_id=doctor-h1 facility=agent:partner/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat')
+            self.assertNotIn('rx1', search)
+            self.assertIn('lang=en days=fri', search)
+            common = (f'facility=agent:partner/h procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 '
+                      f'request_id={request_id}')
+            await city.receive('agent:partner/h',
+                               f'offer offer_id=partner1 slot_id=s2 doctor_id=doctor-h2 doctor_lang=it {common}\n'
+                               f'offer offer_id=partner2 slot_id=s3 doctor_id=doctor-h1 doctor_lang=it/en {common}')
             self.assertTrue(any(text.startswith('consent purpose=cross_asst') for to, text in city.out if to == 'citizen:1'))
+            self.assertFalse(any(text.startswith('confirm ') for _, text in city.out))
             await city.receive('citizen:1', 'consent purpose=cross_asst consent_ref=cross1')
             offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
-            await city.receive('citizen:1', f"confirm offer_id={booking.fields(offer)['offer_id']}")
-            self.assertTrue(any(to == 'agent:partner/h' and 'consent_ref=cross1' in text and 'citizen=citizen:1' in text for to, text in city.out))
+            self.assertEqual(booking.fields(offer)['offer_id'], 'partner2')
+            await city.receive('citizen:1', 'confirm offer_id=partner2 consent_ref=book1')
+            self.assertIn(('agent:partner/h', 'confirm offer_id=partner2 slot_id=s3 prescription_number=rx1 '
+                           'citizen=citizen:1 consent_ref=book1 cross_asst_consent_ref=cross1'), city.out)
+            await city.receive('agent:partner/h', 'booking.receipt booking_id=b2 ledger_ref=r2')
+            self.assertTrue(any(to == 'citizen:1' and text.startswith('booking.receipt booking_id=b2 ledger_ref=r2')
+                                for to, text in city.out))
         asyncio.run(run())
 
     def test_cancelled_slot_is_replaced(self):

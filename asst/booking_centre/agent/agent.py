@@ -189,11 +189,15 @@ async def handle(city: City, message) -> None:
         # Only accept a reply from an agent we actually contacted in this case.
         requested = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "need.request" for row in history)
         confirmed = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "confirm" for row in history)
-        if act(message.text) == "unavailable" and requested:
+        if (act(message.text) == "unavailable" or
+                (act(message.text) == "cancel" and data.get("reason") == "no_availability")) and requested:
             contacted = {row.recipient for row in history
                          if row.sender == city.agent_id and act(row.text) == "need.request"}
             unavailable = {row.sender for row in history
-                           if row.sender in contacted and act(row.text) == "unavailable"}
+                           if row.sender in contacted and (
+                               act(row.text) == "unavailable" or
+                               (act(row.text) == "cancel" and fields(row.text).get("reason") == "no_availability")
+                           )}
             if contacted and contacted <= unavailable and not sent(history, city.agent_id, citizen, "Le strutture contattate non hanno trovato") and not any(
                 row.sender in contacted and act(row.text) == "offer" for row in history
             ):

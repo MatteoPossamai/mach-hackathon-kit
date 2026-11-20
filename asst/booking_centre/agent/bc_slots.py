@@ -20,12 +20,12 @@ def doctor_attrs(lines: list[str]) -> dict[str, dict[str, str]]:
         if not doctor or "slot_id=" in line:
             continue
         entry: dict[str, str] = {}
-        langs = re.search(r"languages=(\S+)", line)
+        langs = re.search(r"(?:languages|doctor_lang)=(\S+)", line)
         if langs:
             codes = re.findall(r"[a-z]{2,3}", langs.group(1))
             if codes:
                 entry["languages"] = "/".join(codes)
-        gender = re.search(r"gender=([mf])\b", line)
+        gender = re.search(r"(?:gender|doctor_gender)=([mf])\b", line)
         if gender:
             entry["gender"] = gender.group(1)
         days = re.search(r"days=(\S+)", line)
@@ -101,11 +101,14 @@ def offer_line(item: dict[str, str], number: str = "", priority: str = "") -> st
             f"facility={item['facility']} procedure={item.get('procedure', '')} "
             f"agenda_date={item.get('at', item.get('agenda_date', ''))} "
             f"agenda_day={item.get('day', item.get('agenda_day', ''))}")
-    languages = item.get("languages", "")
+    languages = item.get("languages", item.get("doctor_lang", ""))
     if languages and TOKEN.fullmatch(languages):
         line += f" languages={languages}"
-    if item.get("gender") in {"m", "f"}:
-        line += f" gender={item['gender']}"
+    gender = item.get("gender", item.get("doctor_gender", ""))
+    if gender in {"m", "f"}:
+        line += f" gender={gender}"
+    if item.get("wheelchair") in {"true", "false"}:
+        line += f" wheelchair={item['wheelchair']}"
     return line
 
 
