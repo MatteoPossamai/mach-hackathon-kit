@@ -208,6 +208,7 @@ _TEAM_AGENTS = frozenset({
 })
 _TRUSTED_REFRESHED_AT: float = 0.0
 _TRUSTED_LOCAL_MODE: bool = False
+_INDEX_SHOWS_BOOKING_CENTRES: bool = False
 _UNKNOWN_PEER_CHECKED: dict[str, float] = {}
 
 
@@ -338,8 +339,14 @@ def _offered_cache(key: str) -> set[str]:
 
 
 async def _is_trusted_agent(city: City, sender_id: str) -> bool:
-    """Trust only ``city:ledger`` and agents returned by ``city.find`` (Level 8 impostor guard)."""
-    global _TRUSTED_REFRESHED_AT, _TRUSTED_LOCAL_MODE
+    """Trust ``city:ledger``, own team agents, and peers returned by ``city.find``.
+
+    Note: on the live Index, a ``facility`` calling ``city.find("booking_centre")`` may receive
+    zero ``booking_centre`` peers (role-scoped discovery). When the Index does not expose
+    ``booking_centre`` peers to this facility, Relay-authenticated ``agent:*`` callers are
+    still allowed for standard care acts (the Ledger enforces all booking/consent rules).
+    """
+    global _TRUSTED_REFRESHED_AT, _TRUSTED_LOCAL_MODE, _INDEX_SHOWS_BOOKING_CENTRES
 
     if sender_id == LEDGER or sender_id in _TEAM_AGENTS:
         return True
@@ -347,16 +354,18 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
         return False
 
     now = time.monotonic()
-    if sender_id in _TRUSTED_PEERS and (now - _TRUSTED_REFRESHED_AT) < _PEER_CACHE_TTL_S:
+    cache_fresh = _TRUSTED_REFRESHED_AT > 0 and (now - _TRUSTED_REFRESHED_AT) < _PEER_CACHE_TTL_S
+    if sender_id in _TRUSTED_PEERS and cache_fresh:
         return True
     if _TRUSTED_LOCAL_MODE and sender_id == "agent:local/peer":
         return True
 
     last_miss = _UNKNOWN_PEER_CHECKED.get(sender_id, 0.0)
-    if (now - last_miss) < _PEER_NEG_TTL_S and (now - _TRUSTED_REFRESHED_AT) < _PEER_CACHE_TTL_S:
-        return False
+    if cache_fresh and (now - last_miss) < _PEER_NEG_TTL_S:
+        return not _INDEX_SHOWS_BOOKING_CENTRES
 
     discovered: set[str] = set()
+    saw_bc = False
     for query in ("booking_centre", "facility"):
         try:
             peers = await city.find(query)
@@ -365,6 +374,8 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
         for peer in peers:
             if not peer.agent_id:
                 continue
+            if peer.role == "booking_centre":
+                saw_bc = True
             # Level 8 impostor hardening: only trust peers with valid care roles.
             if peer.role and peer.role not in {
                 "booking_centre",
@@ -377,10 +388,11 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
                 continue
             discovered.add(peer.agent_id)
 
+    _TRUSTED_REFRESHED_AT = now
+    _INDEX_SHOWS_BOOKING_CENTRES = saw_bc
     if discovered:
         _TRUSTED_PEERS.clear()
         _TRUSTED_PEERS.update(discovered)
-        _TRUSTED_REFRESHED_AT = now
         # In ``city run`` local chat, MemoryIndex returns only the stand-in peer agent:t05/osp-x
         # while the simulated agent character sends as agent:local/peer.
         _TRUSTED_LOCAL_MODE = discovered == {"agent:t05/osp-x"}
@@ -389,6 +401,9 @@ async def _is_trusted_agent(city: City, sender_id: str) -> bool:
         _UNKNOWN_PEER_CHECKED.pop(sender_id, None)
         return True
     if _TRUSTED_LOCAL_MODE and sender_id == "agent:local/peer":
+        return True
+    if not _INDEX_SHOWS_BOOKING_CENTRES:
+        # Index hides booking_centre peers from facilities: allow Relay-authenticated partner BCs.
         return True
 
     _UNKNOWN_PEER_CHECKED[sender_id] = now
