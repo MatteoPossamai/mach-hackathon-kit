@@ -1,7 +1,7 @@
-agent_id: agent:vxn7ptstdzyx
+agent_id: agent:c2ewegr2ea3v
 team: team:ltf-jecatt
 name: gp
-version: 1.0.0
+version: 1.0.1
 cap_versions:
   - "1.0"
 profiles:
@@ -11,4 +11,4 @@ capabilities:
   - gp
 no_clinical_advice: true
 endpoints:
-  mailbox: agent:vxn7ptstdzyx
+  mailbox: agent:c2ewegr2ea3v

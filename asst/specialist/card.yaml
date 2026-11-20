@@ -1,7 +1,7 @@
-agent_id: agent:z015sz2dpwwt
+agent_id: agent:pky3vqyqbepa
 team: team:ltf-jecatt
 name: specialist
-version: 1.0.0
+version: 1.0.1
 cap_versions:
   - "1.0"
 profiles:
@@ -11,4 +11,4 @@ capabilities:
   - specialist_care.cardiology
 no_clinical_advice: true
 endpoints:
-  mailbox: agent:z015sz2dpwwt
+  mailbox: agent:pky3vqyqbepa
