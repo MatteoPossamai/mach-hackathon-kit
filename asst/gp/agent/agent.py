@@ -1512,3 +1512,23 @@ async def _handoff(city: City, chat: list[Message], number: str, procedure: str,
     tail = (f" procedure={procedure}" if procedure else "") + (f" priority={priority}" if priority else "")
     await _say(city, _TEAM_BOOKING_CENTRE,
                f"handoff {token}{tail} Ricetta appena emessa: il paziente la contatterà per prenotare entro la scadenza.")
+
+
+# --- prose never carries a second act word -------------------------------------------------
+# understood() keeps the LAST act word it finds, so a bare "offer" or "prescription" in the
+# sentence would change what the citizen reads. Swap such words for plain synonyms.
+
+_PROSE_SWAP = {
+    "offer": "propose", "prescription": "referral", "confirm": "approve", "cancel": "call off",
+    "consent": "permission", "checkin": "check-in", "report": "findings", "hold": "keep",
+    "hold.": "keep.", "need.request": "request", "data.request": "request",
+}
+_say_raw = _say
+
+
+async def _say(city: City, to: str, text: str) -> bool:
+    if to != LEDGER and text:
+        head, sep, rest = text.partition(" ")
+        if rest:
+            text = head + sep + " ".join(_PROSE_SWAP.get(word, word) for word in rest.split(" "))
+    return await _say_raw(city, to, text)

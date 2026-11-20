@@ -178,3 +178,20 @@ class GpHandoffTest(unittest.TestCase):
         self.assertEqual(to, 'agent:gdrf9b9kxxss')
         self.assertTrue(text.startswith('handoff prescription_number=prescription_number-N-1 procedure=VIS-FIS priority=D'))
         self.assertNotIn('citizen:', text)
+
+
+class ActWordTest(unittest.TestCase):
+    def test_every_prescription_note_still_reads_as_a_prescription(self):
+        from city_sdk.city import understood
+        sent = []
+        class C:
+            agent_id = 'agent:c2ewegr2ea3v'
+            async def say(self, to, text): sent.append(text)
+        for english in (False, True):
+            for reminder in (False, True):
+                note = gp._rx_note('VIS-FIS', 'B', english=english, reminder=reminder)
+                asyncio.run(gp._say(C(), 'citizen:1', 'prescription prescription_number=prescription_number-N-1 ' + note))
+        for text in sent:
+            m = Message(type='chat', sender='agent:x', recipient='citizen:1', msg_id='m', need_id='N', body={'text': text})
+            self.assertEqual(understood(m).type, 'prescription', text)
+        self.assertIn('will propose you times', sent[-1])
