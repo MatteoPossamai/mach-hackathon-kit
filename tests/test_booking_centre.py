@@ -10,6 +10,7 @@ from city_sdk.city import Message
 spec = importlib.util.spec_from_file_location('booking', Path(__file__).parents[1] / 'asst/booking_centre/agent/agent.py')
 booking = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(booking)
+booking.RECEIPT_WAIT = 0.05
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
@@ -66,7 +67,8 @@ class BookingTest(unittest.TestCase):
         incoming = msg('citizen:1', 'confirm offer_id=o1 slot_id=evil facility=agent:evil/h consent_ref=c1')
         city = FakeCity([msg('citizen:1', 'need.request prescription_number=rx1'), msg(city_id(), offer, 'citizen:1'), incoming])
         asyncio.run(booking.handle(city, incoming))
-        self.assertEqual(city.out, [('agent:t/h', 'confirm offer_id=o1 slot_id=real prescription_number=rx1 citizen=citizen:1 consent_ref=c1')])
+        self.assertEqual(city.out[0], ('agent:t/h', 'confirm offer_id=o1 slot_id=real prescription_number=rx1 citizen=citizen:1 consent_ref=c1'))
+        self.assertTrue(all(to != 'agent:evil/h' for to, _ in city.out))
 
     def test_unsolicited_peer_cannot_trigger_consent_or_receipt(self):
         for text in ('offer slot_id=s1', 'booking.receipt booking_id=b1 ledger_ref=r1'):
@@ -101,9 +103,6 @@ class BookingTest(unittest.TestCase):
 
 def city_id():
     return 'agent:team/booking'
-
-if __name__ == '__main__':
-    unittest.main()
 
 class JourneyCity(FakeCity):
     """Simulated mailbox: Ledger responses are delivered into the case history."""
@@ -162,3 +161,43 @@ class JourneyTest(unittest.TestCase):
             await city.receive('citizen:1', f"confirm offer_id={booking.fields(offer)['offer_id']}")
             self.assertTrue(any(to == 'agent:partner/h' and 'consent_ref=cross1' in text and 'citizen=citizen:1' in text for to, text in city.out))
         asyncio.run(run())
+
+
+class ConfirmRetryTest(unittest.TestCase):
+    """A confirm lost during a facility redeploy must not leave the citizen in silence."""
+
+    def setUp(self):
+        booking.RELAYED.clear()
+
+    def rows(self):
+        offer = 'offer offer_id=o1 slot_id=real facility=agent:t/h prescription_number=rx1'
+        return [msg('citizen:1', 'need.request prescription_number=rx1', mid='a'),
+                msg(city_id(), offer, 'citizen:1', mid='b')]
+
+    def test_silent_facility_gets_one_retry_then_citizen_is_told(self):
+        incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=c1', mid='c')
+        city = FakeCity(self.rows() + [incoming])
+        asyncio.run(booking.handle(city, incoming))
+        confirms = [t for to, t in city.out if to == 'agent:t/h']
+        self.assertEqual(len(confirms), 2)
+        self.assertEqual(city.out[-1][0], 'citizen:1')
+        self.assertIn('ricevuta', city.out[-1][1])
+
+    def test_receipt_after_retry_is_relayed_once(self):
+        class LateFacility(FakeCity):
+            async def say(self, to, text):
+                await super().say(to, text)
+                if to == 'agent:t/h' and sum(1 for t, _ in self.out if t == 'agent:t/h') == 2:
+                    self.rows.append(msg('agent:t/h', 'booking.receipt booking_id=b1 ledger_ref=r1', city_id(), 'r'))
+        incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=c1', mid='c')
+        city = LateFacility(self.rows() + [incoming])
+        asyncio.run(booking.handle(city, incoming))
+        self.assertEqual(city.out[-1], ('citizen:1', 'booking.receipt booking_id=b1 ledger_ref=r1'))
+        # The receipt also opens its own turn: it must not be relayed twice.
+        city.rows.append(msg(city_id(), 'confirm offer_id=o1 slot_id=real', 'agent:t/h', 'd'))
+        asyncio.run(booking.handle(city, city.rows[-2]))
+        self.assertEqual(sum(1 for to, t in city.out if t.startswith('booking.receipt')), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

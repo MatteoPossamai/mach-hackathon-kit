@@ -344,6 +344,74 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
         await send(city, citizen, "Non riesco ancora a verificare un'offerta adatta. Continueremo a cercare.")
 
 
+# A confirm can be lost while a facility is being redeployed: wait for its answer, retry once
+# (retries on a timeout are allowed; the facility does not hold the same slot twice), and never
+# leave the citizen without a word.
+RECEIPT_WAIT = 15.0
+# Facility answers already relayed by this process, so a queued turn does not repeat them.
+RELAYED: set[str] = set()
+PENDING_NOTE = (
+    "La struttura non ha ancora confermato la prenotazione: le inoltro la ricevuta appena arriva. "
+    "The facility has not confirmed yet: I will forward the receipt as soon as it arrives."
+)
+
+
+def facility_reply(history: list, facility: str, seen: frozenset = frozenset()):
+    """The facility's latest receipt or cancel in this case, ignoring rows in ``seen``."""
+
+    for row in reversed(history):
+        if row.sender != facility or row.msg_id in seen:
+            continue
+        kind = act(row.text)
+        data = fields(row.text)
+        if kind == "booking.receipt" and data.get("booking_id") and data.get("ledger_ref"):
+            return row
+        if kind == "cancel":
+            return row
+    return None
+
+
+async def relay_facility_reply(city: City, need_id: str, history: list, citizen: str, row) -> None:
+    data = fields(row.text)
+    if act(row.text) == "booking.receipt":
+        if not data.get("booking_id") or not data.get("ledger_ref"):
+            return
+        key = f"{need_id}:receipt:{data['booking_id']}"
+        if key in RELAYED or sent(history, city.agent_id, citizen, f"booking.receipt booking_id={data['booking_id']}"):
+            return
+        RELAYED.add(key)
+        await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}")
+        return
+    key = f"{need_id}:cancel:{data.get('offer_id', '')}:{row.msg_id}"
+    if key in RELAYED:
+        return
+    RELAYED.add(key)
+    await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled La struttura ha annullato; ci contatti per trovare un'alternativa.")
+
+
+async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str) -> None:
+    facility = selected["facility"]
+    text = (f"confirm offer_id={selected['offer_id']} slot_id={selected['slot_id']} "
+            f"prescription_number={selected.get('prescription_number', '')} citizen={citizen} consent_ref={consent}")
+    try:
+        seen = frozenset(row.msg_id for row in await city.history(need_id=need_id))
+    except CapError:
+        seen = frozenset()
+    answered = lambda h: facility_reply(h, facility, seen) is not None
+    if not await send(city, facility, text):
+        await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable La struttura non è raggiungibile. Ci contatti per cercare un'alternativa.")
+        return
+    history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
+    if not answered(history):
+        await send(city, facility, text)
+        history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
+    reply = facility_reply(history, facility, seen)
+    if reply is not None:
+        await relay_facility_reply(city, need_id, history, citizen, reply)
+    elif not sent(history, city.agent_id, citizen, "La struttura non ha ancora confermato"):
+        await send(city, citizen, PENDING_NOTE)
+
+
 async def main(need: Need, city: City) -> None:
     incoming = city.inbound
     if incoming is None or not incoming.need_id:
@@ -384,9 +452,7 @@ async def handle(city: City, message) -> None:
                 await send(city, citizen, "consent purpose=booking Posso procedere con la prenotazione scelta?")
                 return
             if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
-                ok = await send(city, facility, f"confirm offer_id={selected['offer_id']} slot_id={selected['slot_id']} prescription_number={selected['prescription_number']} citizen={citizen} consent_ref={consent}")
-                if not ok:
-                    await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable La struttura non è raggiungibile. Ci contatti per cercare un'alternativa.")
+                await confirm_at_facility(city, message.need_id, citizen, selected, consent)
             return
         if kind == "consent" and data.get("consent_ref"):
             if data.get("purpose") == "cross_asst" and sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
@@ -398,7 +464,7 @@ async def handle(city: City, message) -> None:
                                if row.sender == citizen and act(row.text) == "confirm"), "")
                 selected = offers(history, city.agent_id, citizen).get(choice)
                 if selected and selected.get("slot_id"):
-                    await send(city, selected["facility"], f"confirm offer_id={choice} slot_id={selected['slot_id']} prescription_number={selected['prescription_number']} citizen={citizen} consent_ref={data['consent_ref']}")
+                    await confirm_at_facility(city, message.need_id, citizen, selected, data["consent_ref"])
             return
         number = data.get("prescription_number", "")
         if not number and message.type != "chat":
@@ -416,11 +482,8 @@ async def handle(city: City, message) -> None:
         # Only accept a reply from an agent we actually contacted in this case.
         requested = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "need.request" for row in history)
         confirmed = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "confirm" for row in history)
-        if kind == "booking.receipt" and confirmed and data.get("booking_id") and data.get("ledger_ref"):
-            if not sent(history, city.agent_id, citizen, f"booking.receipt booking_id={data['booking_id']}"):
-                await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}")
-        elif kind == "cancel" and confirmed:
-            await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled La struttura ha annullato; ci contatti per trovare un'alternativa.")
+        if kind in {"booking.receipt", "cancel"} and confirmed:
+            await relay_facility_reply(city, message.need_id, history, citizen, message)
         elif kind == "offer" and requested:
             # The remote facility's claim is not a Ledger-verified local slot. Ask for
             # consent first; never treat a peer's text as authority to disclose data.
