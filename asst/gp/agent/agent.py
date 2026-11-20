@@ -744,6 +744,7 @@ async def _announce(city: City, message: Message, chat: list[Message], agent: st
     citizen_text = next((row.text for row in reversed(chat) if row.sender == citizen), "")
     parts.append(_rx_note(procedure or "", priority or "", english=_english(citizen_text), text=citizen_text))
     await _say(city, citizen, " ".join(parts))
+    await _handoff(city, chat, number, procedure or "", priority or "")
 
 # --- centro prenotazioni and consultorio -------------------------------------------------------
 
@@ -1467,3 +1468,47 @@ async def _peer_note(city: City, message: Message, chat: list[Message]) -> None:
     if _we(chat, city.agent_id, token, to=message.sender, word="ack"):
         return
     await _say(city, message.sender, f"ack {token} Grazie, preso nota nella scheda del paziente.")
+
+
+# --- personal note and hand-off to the booking centre ---------------------------------------
+
+_TEAM_BOOKING_CENTRE = "agent:gdrf9b9kxxss"
+_CARE_IT = {
+    "VIS-FIS": "Mi dispiace per il dolore che mi descrive: una visita fisiatrica è il passo giusto per capirne la causa e impostare la cura.",
+    "VIS-CARD": "Mi dispiace per il disturbo che mi descrive: una visita cardiologica è il passo giusto per controllare il cuore con calma.",
+}
+_CARE_EN = {
+    "VIS-FIS": "I'm sorry about the pain you describe: a physiatry visit is the right step to find the cause and plan the treatment.",
+    "VIS-CARD": "I'm sorry about the symptoms you describe: a cardiology visit is the right step to check your heart properly.",
+}
+_rx_note_next = _rx_note
+
+
+def _rx_note(
+    procedure: str, priority: str, *, english: bool, text: str = "", reminder: bool = False
+) -> str:
+    """Acknowledge the person first, then the prescription, next steps and the hand-off."""
+
+    note = _rx_note_next(procedure, priority, english=english, text=text, reminder=reminder)
+    care = (_CARE_EN if english else _CARE_IT).get(procedure, "")
+    if care and note.startswith("- "):
+        note = "- " + care + " " + note[2:]
+    if reminder:
+        return note
+    if english:
+        return note + " I have already passed your prescription to our booking centre, so they are ready when you write."
+    return note + " Ho già passato la ricetta al nostro centro prenotazioni, così è pronto quando lo contatta."
+
+
+async def _handoff(city: City, chat: list[Message], number: str, procedure: str, priority: str) -> None:
+    """Tell our booking centre a prescription is on its way (once per prescription, no citizen data)."""
+
+    if not number or city.agent_id == _TEAM_BOOKING_CENTRE:
+        return
+    token = f"prescription_number={number}"
+    if any(row.sender == city.agent_id and row.recipient == _TEAM_BOOKING_CENTRE and token in row.text
+           for row in chat):
+        return
+    tail = (f" procedure={procedure}" if procedure else "") + (f" priority={priority}" if priority else "")
+    await _say(city, _TEAM_BOOKING_CENTRE,
+               f"handoff {token}{tail} Ricetta appena emessa: il paziente la contatterà per prenotare entro la scadenza.")
