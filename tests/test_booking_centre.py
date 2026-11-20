@@ -199,5 +199,100 @@ class ConfirmRetryTest(unittest.TestCase):
         self.assertEqual(sum(1 for to, t in city.out if t.startswith('booking.receipt')), 1)
 
 
+
+class BookingPerfectionTest(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.REBOOKS.clear()
+
+    def test_words_add_to_tokens_when_llm_is_down(self):
+        rows = [msg('citizen:1', 'I would like a female doctor, on Tuesday please. need.request lang=en prescription_number=rx1')]
+        prefs = asyncio.run(booking.citizen_preferences(FakeCity(rows), rows, 'citizen:1'))
+        self.assertEqual(prefs, {'lang': 'en', 'gender': 'f', 'days': 'tue'})
+
+    def test_salutation_is_not_a_gender_preference(self):
+        self.assertEqual(booking.keyword_preferences(['Gentile dottoressa, ho mal di schiena']), {})
+        self.assertNotIn('days', booking.keyword_preferences(['non posso il lunedì']))
+
+    def test_doctor_attributes_from_world(self):
+        lines = ['doctor doctor_id=asst-x-h2 facility=agent:a languages=it/fr gender=m days=wed/thu/fri',
+                 'slot_id=s1 doctor_id=asst-x-h2 facility=agent:a procedure=VIS-FIS']
+        attrs = booking.doctor_attrs(lines)
+        self.assertEqual(attrs, {'asst-x-h2': {'languages': 'it/fr', 'gender': 'm', 'doctor_days': 'wed/thu/fri'}})
+        now = datetime(2026, 11, 20, tzinfo=timezone.utc)
+        slot = booking.enrich(dict(slot_id='s1', doctor_id='asst-x-h2', facility='agent:a', procedure='VIS-FIS',
+                                   at='2026-11-21T12:00:00+00:00', day='fri'), attrs)
+        self.assertTrue(booking.valid_slot(slot, 'VIS-FIS', 'B', now, {'lang': 'fr'}))
+        self.assertFalse(booking.valid_slot(slot, 'VIS-FIS', 'B', now, {'lang': 'en'}))
+
+    def test_offer_message_holds_many_varied_slots(self):
+        items = []
+        for d, day in enumerate(('mon', 'tue', 'wed')):
+            for doc in ('h1', 'h2', 'h3'):
+                for hh in ('10:30', '12:00', '14:30', '16:00'):
+                    items.append(dict(slot_id=f'W01QQQ-asst-lambrate-{doc}-2026110{d+1}-{hh.replace(":", "")}',
+                                      doctor_id=f'asst-lambrate-{doc}', facility='agent:nanpr5mgm2py',
+                                      at=f'2026-11-0{d+1}T{hh}:00.000Z', day=day, languages='it/en', gender='f'))
+        lines = booking.pick_offers(items, 'rx', 'B', 1950 - len(booking.OFFER_NOTE))
+        self.assertGreaterEqual(len(lines), 8)
+        self.assertLessEqual(sum(len(l) + 1 for l in lines) + len(booking.OFFER_NOTE), 2000)
+        self.assertEqual(len({l.split('doctor_id=')[1].split()[0] for l in lines}), 3)
+        self.assertGreaterEqual(len({l.split('agenda_day=')[1].split()[0] for l in lines}), 2)
+
+    def test_partners_by_capability_never_our_agents(self):
+        class RingCity(FakeCity):
+            queries = []
+            async def find(self, query):
+                self.queries.append(query)
+                return [SimpleNamespace(agent_id='agent:nanpr5mgm2py', role='facility', capabilities=('hospital.physiatry',)),
+                        SimpleNamespace(agent_id='agent:other/h', role='facility', capabilities=('hospital.physiatry',)),
+                        SimpleNamespace(agent_id='agent:other/s', role='facility', capabilities=('specialist_care.cardiology',))]
+        city = RingCity([])
+        asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', []))
+        self.assertEqual(city.queries[0], 'hospital.physiatry')
+        self.assertEqual([to for to, t in city.out if t.startswith('need.request')], ['agent:other/h'])
+
+    def test_cross_consent_travels_with_confirm(self):
+        offer = 'offer offer_id=o1 slot_id=s9 facility=agent:other/h prescription_number=rx1'
+        incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=book1', mid='c')
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1', mid='a'),
+                msg('citizen:1', 'consent purpose=cross_asst consent_ref=cross1', mid='a2'),
+                msg(city_id(), offer, 'citizen:1', mid='b'), incoming]
+        city = FakeCity(rows)
+        asyncio.run(booking.handle(city, incoming))
+        self.assertIn('cross_asst_consent_ref=cross1', city.out[0][1])
+        self.assertIn('consent_ref=book1', city.out[0][1])
+
+
+class RebookTest(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.REBOOKS.clear()
+
+    def test_facility_cancel_brings_new_offers_without_the_lost_slot(self):
+        async def run():
+            class TwoSlots(JourneyCity):
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('world '):
+                        self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat\n'
+                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T14:30:00+00:00 day=sat',
+                            self.agent_id, f'w-{len(self.rows)}')
+                    if to == 'agent:team/h' and text.startswith('confirm ') and 'slot_id=s1' in text:
+                        self.rows.append(msg('agent:team/h', 'cancel offer_id=x reason=slot_taken', self.agent_id, f'c-{len(self.rows)}'))
+            city = TwoSlots()
+            await city.receive('citizen:1', 'need.request prescription_number=rx1')
+            first = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer '))
+            o1 = next(l for l in first.splitlines() if 'slot_id=s1' in l)
+            await city.receive('citizen:1', f"confirm {booking.fields(o1)['offer_id'] and 'offer_id=' + booking.fields(o1)['offer_id']} consent_ref=c1")
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('cancel ') for to, t in city.out))
+            again = [t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ')]
+            self.assertEqual(len(again), 2)
+            self.assertNotIn('slot_id=s1', again[1])
+            self.assertIn('slot_id=s2', again[1])
+        asyncio.run(run())
+
+
 if __name__ == '__main__':
     unittest.main()

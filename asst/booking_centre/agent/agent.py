@@ -43,8 +43,8 @@ def rx_from_text(history: list, citizen: str, text: str) -> str:
     return ""
 
 
-async def nl_preferences(city: City, history: list, citizen: str) -> dict[str, str]:
-    """Preferences stated in natural language, through the City LLM Gateway. Empty on failure."""
+async def nl_preferences(city: City, history: list, citizen: str) -> dict[str, str] | None:
+    """Preferences stated in natural language, through the City LLM Gateway. None on failure."""
 
     texts = [row.text for row in history if row.sender == citizen and row.text]
     if not texts:
@@ -60,14 +60,16 @@ async def nl_preferences(city: City, history: list, citizen: str) -> dict[str, s
             LLM_TIMEOUT,
         )
     except (CapError, asyncio.TimeoutError):
-        return {}
+        return None
     found = re.search(r"\{.*\}", str(reply.get("content") or ""), re.S)
     if not found:
-        return {}
+        return None
     try:
         data = json.loads(found.group(0))
     except ValueError:
-        return {}
+        return None
+    if not isinstance(data, dict):
+        return None
     result: dict[str, str] = {}
     lang = str(data.get("lang") or "").strip().lower()
     if re.fullmatch(r"[a-z]{2}", lang) and lang != "it":
@@ -79,6 +81,95 @@ async def nl_preferences(city: City, history: list, citizen: str) -> dict[str, s
     if days:
         result["days"] = "/".join(d.strip() for d in days)
     return result
+LANG_WORDS = {
+    "en": ("english", "inglese"), "ja": ("japanese", "giapponese", "日本語"),
+    "fr": ("french", "francese"), "es": ("spanish", "spagnolo"), "de": ("german", "tedesco"),
+    "zh": ("chinese", "cinese"), "ar": ("arabic", "arabo"), "ru": ("russian", "russo"),
+    "ro": ("romanian", "rumeno"), "pt": ("portuguese", "portoghese"),
+}
+GENDER_WORDS = {
+    "f": ("female doctor", "woman doctor", "lady doctor", "medico donna", "una dottoressa",
+          "una donna", "a woman", "dottoressa donna", "medica donna"),
+    "m": ("male doctor", "medico uomo", "un uomo", "a man", "dottore uomo", "medico maschio"),
+}
+DAY_WORDS = {
+    "mon": ("monday", "lunedì", "lunedi"), "tue": ("tuesday", "martedì", "martedi"),
+    "wed": ("wednesday", "mercoledì", "mercoledi"), "thu": ("thursday", "giovedì", "giovedi"),
+    "fri": ("friday", "venerdì", "venerdi"),
+}
+EN_WORDS = {"the", "i", "my", "please", "need", "have", "would", "could", "with", "and",
+            "appointment", "doctor", "pain", "thank", "you", "am", "is", "for", "speak"}
+IT_WORDS = {"il", "la", "di", "che", "per", "non", "sono", "ho", "un", "una", "mi", "grazie",
+            "vorrei", "buongiorno", "della", "con", "è", "dottore", "visita", "male"}
+
+
+def keyword_preferences(texts: list[str]) -> dict[str, str]:
+    """Deterministic fallback when the LLM is unavailable: explicit words only."""
+
+    text = " ".join(texts).lower()
+    result: dict[str, str] = {}
+    for code, words in LANG_WORDS.items():
+        if any(word in text for word in words):
+            result["lang"] = code
+            break
+    for code, words in GENDER_WORDS.items():
+        if any(word in text for word in words):
+            result["gender"] = code
+            break
+    days = [code for code, words in DAY_WORDS.items() if any(word in text for word in words)]
+    if days and not re.search(r"\b(non|not|except|tranne|eccetto)\b", text):
+        result["days"] = "/".join(days)
+    return result
+
+
+def writes_english(history: list, citizen: str) -> bool:
+    texts = [row.text for row in history if row.sender == citizen and row.text]
+    if any(fields(text).get("lang") == "en" for text in texts):
+        return True
+    words = re.findall(r"[a-zà-ù']+", " ".join(texts).lower())
+    return sum(w in EN_WORDS for w in words) >= 3 and sum(w in IT_WORDS for w in words) < 2
+
+
+# Our own agents (asst/*/card.yaml): never a cross-ASST partner.
+TEAM_AGENTS = frozenset({"agent:gdrf9b9kxxss", "agent:nanpr5mgm2py", "agent:c2ewegr2ea3v",
+                         "agent:pky3vqyqbepa", "agent:atp772whjkgd"})
+CAPABILITY = {"VIS-FIS": "hospital.physiatry", "VIS-CARD": "specialist_care.cardiology",
+              "CTRL-CARD": "specialist_care.cardiology", "CONS-GIN": "family_counseling.gynecology"}
+
+
+def doctor_attrs(lines: list[str]) -> dict[str, dict[str, str]]:
+    """Doctors listed by the Ledger's world reply (languages, gender, days), by doctor_id."""
+
+    found: dict[str, dict[str, str]] = {}
+    for line in lines:
+        doctor = re.search(r"doctor_id=([A-Za-z0-9_.:\-]+)", line)
+        if not doctor or "slot_id=" in line:
+            continue
+        entry: dict[str, str] = {}
+        langs = re.search(r"languages=(\S+)", line)
+        if langs:
+            codes = re.findall(r"[a-z]{2,3}", langs.group(1))
+            if codes:
+                entry["languages"] = "/".join(codes)
+        gender = re.search(r"gender=([mf])\b", line)
+        if gender:
+            entry["gender"] = gender.group(1)
+        days = re.search(r"days=(\S+)", line)
+        if days:
+            codes = [d for d in re.findall(r"[a-z]{3}", days.group(1)) if d in DAY_CODES]
+            if codes:
+                entry["doctor_days"] = "/".join(codes)
+        if entry:
+            found[doctor.group(1)] = entry
+    return found
+
+
+def enrich(item: dict[str, str], doctors: dict[str, dict[str, str]]) -> dict[str, str]:
+    for key, value in doctors.get(item.get("doctor_id", ""), {}).items():
+        item.setdefault(key, value)
+    return item
+
+
 # The published care example defines the seeded doctors' attributes. Unknown
 # doctors are deliberately not assumed to meet a language or gender preference.
 DOCTORS = {"h1": ("it/en", "f"), "h2": ("it", "m"),
@@ -167,7 +258,7 @@ def preferences(history: list, citizen: str) -> dict[str, str]:
 
 
 def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetime,
-               prefs: dict[str, str]) -> bool:
+               prefs: dict[str, str], assume_known: bool = True) -> bool:
     at = time(item.get("at", item.get("agenda_date", "")))
     if not all(item.get(k) for k in ("slot_id", "doctor_id", "facility")) or not at:
         return False
@@ -188,6 +279,13 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
         return False
     # Missing doctor attributes are not evidence that a stated need is met.
     known_languages, known_gender = DOCTORS.get(item["doctor_id"].rsplit("-", 1)[-1], ("", ""))
+    if not assume_known:
+        # A partner ASST's doctors are not ours: only what the partner states can be checked.
+        known_languages, known_gender = "", ""
+        if not item.get("gender"):
+            prefs = {k: v for k, v in prefs.items() if k not in ("gender", "gender_preference")}
+        if not item.get("languages"):
+            prefs = {k: v for k, v in prefs.items() if k != "lang"}
     gender = prefs.get("gender_preference", prefs.get("gender", ""))
     if gender and item.get("gender", known_gender) != gender:
         return False
@@ -198,70 +296,153 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
     return True
 
 
-def offer_line(item: dict[str, str], number: str, priority: str) -> str:
+def offer_line(item: dict[str, str], number: str = "", priority: str = "") -> str:
+    """One compact offer: short lines let more choices fit in the single offer message."""
+
     slot = item["slot_id"]
     oid = "of-" + hashlib.sha256((item["facility"] + ":" + slot).encode()).hexdigest()[:16]
-    return (f"offer offer_id={oid} slot_id={slot} doctor_id={item['doctor_id']} "
-            f"facility={item['facility']} procedure={item['procedure']} "
+    line = (f"offer offer_id={oid} slot_id={slot} doctor_id={item['doctor_id']} "
+            f"facility={item['facility']} procedure={item.get('procedure', '')} "
             f"agenda_date={item.get('at', item.get('agenda_date', ''))} "
-            f"agenda_day={item.get('day', item.get('agenda_day', ''))} "
-            f"prescription_number={number} priority={priority} expiry={item.get('at', item.get('agenda_date', ''))}")
+            f"agenda_day={item.get('day', item.get('agenda_day', ''))}")
+    languages = item.get("languages", "")
+    if languages and TOKEN.fullmatch(languages):
+        line += f" languages={languages}"
+    if item.get("gender") in {"m", "f"}:
+        line += f" gender={item['gender']}"
+    return line
 
 
-async def search(city: City, need_id: str, history: list, citizen: str, number: str) -> None:
+def pick_offers(candidates: list, number: str, priority: str, budget: int) -> list[str]:
+    """As many offers as fit, spread over doctors and days so the citizen has a real choice."""
+
+    ordered = sorted(candidates, key=lambda item: item.get("at", item.get("agenda_date", "")))
+    groups: dict[tuple[str, str], list] = {}
+    for item in ordered:
+        key = (item.get("doctor_id", ""), item.get("day", item.get("agenda_day", "")))
+        groups.setdefault(key, []).append(item)
+    chosen, used = [], 0
+    while any(groups.values()):
+        for key in list(groups):
+            if not groups[key]:
+                continue
+            item = groups[key].pop(0)
+            line = offer_line(item, number, priority)
+            if used + len(line) + 1 > budget:
+                groups = {}
+                break
+            chosen.append((item.get("at", item.get("agenda_date", "")), line))
+            used += len(line) + 1
+    return [line for _, line in sorted(chosen)]
+
+
+def fresh_reply(history: list, seen: set, head: str, match: tuple[str, str] | None = None):
+    """The newest Ledger reply that arrived after ``seen`` was taken."""
+
+    for row in reversed(history):
+        if row.msg_id in seen or row.sender != LEDGER or act(row.text) != head:
+            continue
+        if match is None or fields(row.text).get(match[0]) == match[1]:
+            return row
+    return None
+
+
+def slots_page(row) -> str:
+    return fields(row.text.splitlines()[0]).get("page", "1/1").split("/")[0]
+
+
+def case_number(history: list, citizen: str) -> str:
+    rx = ledger_reply(history, "prescription")
+    number = fields(rx.text).get("prescription_number", "") if rx else ""
+    return number or rx_from_text(history, citizen, "")
+
+
+async def search(city: City, need_id: str, history: list, citizen: str, number: str,
+                 exclude: frozenset = frozenset(), lead: str = "") -> None:
+    """Verify the prescription, read the whole local world and send every fitting slot at once.
+
+    ``exclude`` holds slot ids and facility ids that failed (cancelled or unreachable).
+    """
+    english = writes_english(history, citizen)
+    seen = {row.msg_id for row in history}
     # Read the prescription ourselves: a citizen or another agent cannot certify it.
     await send(city, LEDGER, f"prescription prescription_number={number}")
     await send(city, LEDGER, "agenda")
     await send(city, LEDGER, "rules")
-    history = await wait_for(city, need_id, lambda h: ledger_reply(h, "prescription", ("prescription_number", number)) is not None and ledger_reply(h, "agenda") is not None)
-    rx = ledger_reply(history, "prescription", ("prescription_number", number))
-    agenda = ledger_reply(history, "agenda")
+    match = ("prescription_number", number)
+    history = await wait_for(city, need_id, lambda h: fresh_reply(h, seen, "prescription", match) is not None and fresh_reply(h, seen, "agenda") is not None)
+    rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
+    agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
     if not rx or not agenda:
-        await send(city, citizen, "Non riesco ancora a verificare la ricetta. Riprovi tra poco.")
+        await send(city, citizen, "I cannot verify the prescription yet. Please try again shortly." if english
+                   else "Non riesco ancora a verificare la ricetta. Riprovi tra poco.")
         return
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
     now = time(fields(agenda.text).get("agenda_now", ""))
     if prescription.get("state") != "issued" or not procedure or priority not in {"U", "B", "D", "P"} or not now:
-        await send(city, citizen, "data.request purpose=prescription_renewal fields=prescription_number La ricetta non risulta utilizzabile; chieda una verifica o un rinnovo al medico.")
+        await send(city, citizen, "data.request purpose=prescription_renewal fields=prescription_number "
+                   + ("The prescription cannot be used: please ask your GP to check or renew it." if english
+                      else "La ricetta non risulta utilizzabile; chieda una verifica o un rinnovo al medico."))
         return
     if priority == "P":
-        await send(city, citizen, f"offer offer_id=wl-{hashlib.sha256(need_id.encode()).hexdigest()[:16]} waiting_list=true Per questa priorità è disponibile la lista d'attesa.")
+        await send(city, citizen, f"offer offer_id=wl-{hashlib.sha256(need_id.encode()).hexdigest()[:16]} waiting_list=true "
+                   + ("A waiting list is available for this priority." if english
+                      else "Per questa priorità è disponibile la lista d'attesa."))
         return
-    prefs = preferences(history, citizen)
-    if not prefs:
-        # Level 3+: needs arrive in natural language. Tokens, when present, always win.
-        prefs = await nl_preferences(city, history, citizen)
-    items = []
+    prefs = await citizen_preferences(city, history, citizen)
+    items, doctors = [], {}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
     for page in range(1, 21):
+        page_seen = {row.msg_id for row in history}
         await send(city, LEDGER, f"world procedure={procedure} page={page}")
-        history = await wait_for(city, need_id, lambda h: any(m.sender == LEDGER and act(m.text) == "slots" and fields(m.text.splitlines()[0]).get("page", "1/1").split("/")[0] == str(page) for m in h))
-        response = next((m for m in reversed(history) if m.sender == LEDGER and act(m.text) == "slots" and fields(m.text.splitlines()[0]).get("page", "1/1").split("/")[0] == str(page)), None)
+        is_page = lambda m: m.sender == LEDGER and act(m.text) == "slots" and slots_page(m) == str(page)
+        history = await wait_for(city, need_id, lambda h: any(is_page(m) and m.msg_id not in page_seen for m in h))
+        response = (next((m for m in reversed(history) if is_page(m) and m.msg_id not in page_seen), None)
+                    or next((m for m in reversed(history) if is_page(m)), None))
         if not response:
             break
-        items.extend(fields(line) for line in response.text.splitlines()[1:])
+        lines = response.text.splitlines()[1:]
+        doctors.update(doctor_attrs(lines))
+        items.extend(fields(line) for line in lines if "slot_id=" in line)
         page_info = fields(response.text.splitlines()[0]).get("page", "1/1").split("/")
         if len(page_info) != 2 or not page_info[1].isdigit() or page >= int(page_info[1]):
             break
+    items = [enrich(item, doctors) for item in items
+             if item.get("slot_id") not in exclude and item.get("facility") not in exclude]
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
     if not candidates:
         await find_partners(city, need_id, citizen, procedure, priority, history)
         return
-    candidates.sort(key=lambda item: item.get("at", ""))
-    lines = [offer_line(item, number, priority) for item in candidates]
-    note = OFFER_NOTE_RELAXED if relaxed else OFFER_NOTE
-    # Keep a single turn and respect the Relay's 2000 character limit.
-    message = ""
-    for line in lines:
-        if len(message) + len(line) + 1 > 1900 - len(note):
-            break
-        message += ("\n" if message else "") + line
-    if message:
-        await send(city, citizen, message + "\n" + note)
+    note = (OFFER_NOTE_RELAXED_EN if relaxed else OFFER_NOTE_EN) if english else (OFFER_NOTE_RELAXED if relaxed else OFFER_NOTE)
+    if lead:
+        note = lead + " " + note
+    # Keep a single message: the citizen chooses within the turn of this one message.
+    lines = pick_offers(candidates, number, priority, 1950 - len(note))
+    if lines:
+        await send(city, citizen, "\n".join(lines) + "\n" + note)
+
+
+async def citizen_preferences(city: City, history: list, citizen: str) -> dict[str, str]:
+    """Tokens win per key; the LLM (or explicit keywords, if it is down) fills the rest."""
+
+    tokens = preferences(history, citizen)
+    prefs: dict[str, str] = {}
+    if not (tokens.get("lang") and (tokens.get("gender") or tokens.get("gender_preference")) and tokens.get("days")):
+        found = await nl_preferences(city, history, citizen)
+        if found is None:
+            found = keyword_preferences([row.text for row in history if row.sender == citizen and row.text])
+        prefs.update(found)
+    prefs.update(tokens)
+    return prefs
 
 
 OFFER_NOTE = "Queste sono le disponibilità compatibili con la sua ricetta e le sue preferenze: mi indichi quale offerta preferisce."
+OFFER_NOTE_EN = "These are the slots that fit your prescription and your preferences: tell me which offer you prefer."
+OFFER_NOTE_RELAXED_EN = (
+    "No slot meets every preference you gave (doctor or day): these are the closest options that "
+    "fit your prescription. Tell me which one you prefer."
+)
 OFFER_NOTE_RELAXED = (
     "Non ci sono posti con tutte le preferenze indicate (medico o giorno): queste sono le "
     "alternative più vicine compatibili con la sua ricetta. Mi indichi quale preferisce."
@@ -285,21 +466,34 @@ def choose_slots(items: list, procedure: str, priority: str, now: datetime,
 
 async def find_partners(city: City, need_id: str, citizen: str, procedure: str, priority: str, history: list) -> None:
     # Search anonymously: no citizen ID, prescription, or personal preferences leave the ASST.
-    try:
-        peers = await city.find(procedure)
-    except CapError:
-        peers = []
+    capability = CAPABILITY.get(procedure, "")
+    peers = []
+    for query in ([capability] if capability else []) + [procedure]:
+        try:
+            peers = await city.find(query)
+        except CapError:
+            peers = []
+        if peers:
+            break
     request_id = "search-" + hashlib.sha256(need_id.encode()).hexdigest()[:16]
     contacted = 0
+    english = writes_english(history, citizen)
     for peer in peers:
-        if peer.role != "facility" or peer.agent_id == city.agent_id:
+        if contacted >= 12:
+            break
+        if peer.role != "facility" or peer.agent_id == city.agent_id or peer.agent_id in TEAM_AGENTS:
+            continue
+        caps = tuple(getattr(peer, "capabilities", ()) or ())
+        if capability and caps and capability not in caps:
             continue
         if await send(city, peer.agent_id, f"need.request service_type={procedure} procedure={procedure} priority={priority} request_id={request_id}"):
             contacted += 1
     if contacted:
-        await send(city, citizen, "Sto cercando disponibilità anche presso altre strutture. Le chiederò il consenso prima di condividere i suoi dati.")
+        await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
+                   else "Nella nostra ASST non ci sono posti adatti: sto chiedendo alle strutture partner. Le chiederò il consenso prima di condividere i suoi dati.")
     else:
-        await send(city, citizen, "Non ho trovato disponibilità adatta. Può contattarci di nuovo o chiedere assistenza al centro.")
+        await send(city, citizen, "I found no suitable availability. You can contact us again or ask the centre for help." if english
+                   else "Non ho trovato disponibilità adatta. Può contattarci di nuovo o chiedere assistenza al centro.")
 
 
 async def remote_offers(city: City, need_id: str, history: list, citizen: str) -> None:
@@ -330,7 +524,7 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             continue
         if item.get("facility") != row.sender:
             continue
-        if valid_slot(item, procedure, priority, now, preferences(history, citizen)):
+        if valid_slot(item, procedure, priority, now, preferences(history, citizen), assume_known=False):
             candidates.append(item)
     lines = []
     for item in candidates:
@@ -371,6 +565,37 @@ def facility_reply(history: list, facility: str, seen: frozenset = frozenset()):
     return None
 
 
+# Rebooking after a cancel is bounded per case so a broken facility cannot loop us.
+REBOOKS: dict[str, int] = {}
+MAX_REBOOKS = 2
+
+
+async def rebook(city: City, need_id: str, citizen: str, exclude: frozenset) -> None:
+    """Offer the remaining slots after a cancel, within the priority deadline (levels 6-7)."""
+
+    if REBOOKS.get(need_id, 0) >= MAX_REBOOKS:
+        return
+    REBOOKS[need_id] = REBOOKS.get(need_id, 0) + 1
+    try:
+        history = await city.history(need_id=need_id)
+    except CapError:
+        return
+    number = case_number(history, citizen)
+    if not number or not TOKEN.fullmatch(number):
+        return
+    english = writes_english(history, citizen)
+    lead = ("The previous slot is no longer available: here are new options." if english
+            else "Il posto precedente non è più disponibile: ecco nuove alternative.")
+    await search(city, need_id, history, citizen, number, exclude, lead)
+
+
+def confirmed_slot(history: list, agent: str, facility: str) -> str:
+    for row in reversed(history):
+        if row.sender == agent and row.recipient == facility and act(row.text) == "confirm":
+            return fields(row.text).get("slot_id", "")
+    return ""
+
+
 async def relay_facility_reply(city: City, need_id: str, history: list, citizen: str, row) -> None:
     data = fields(row.text)
     if act(row.text) == "booking.receipt":
@@ -386,20 +611,37 @@ async def relay_facility_reply(city: City, need_id: str, history: list, citizen:
     if key in RELAYED:
         return
     RELAYED.add(key)
-    await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled La struttura ha annullato; ci contatti per trovare un'alternativa.")
+    english = writes_english(history, citizen)
+    await send(city, citizen, f"cancel offer_id={data.get('offer_id', 'unknown')} reason=facility_cancelled "
+               + ("The facility cancelled this slot; I am looking for an alternative." if english
+                  else "La struttura ha annullato questo posto; cerco subito un'alternativa."))
+    slot = data.get("slot_id") or confirmed_slot(history, city.agent_id, row.sender)
+    await rebook(city, need_id, citizen, frozenset({slot} if slot else set()))
 
 
-async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str) -> None:
+async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str,
+                              cross: str = "") -> None:
     facility = selected["facility"]
+    number = selected.get("prescription_number", "")
+    if not number:
+        try:
+            number = case_number(await city.history(need_id=need_id), citizen)
+        except CapError:
+            number = ""
     text = (f"confirm offer_id={selected['offer_id']} slot_id={selected['slot_id']} "
-            f"prescription_number={selected.get('prescription_number', '')} citizen={citizen} consent_ref={consent}")
+            f"prescription_number={number} citizen={citizen} consent_ref={consent}")
+    if cross and cross != consent:
+        text += f" cross_asst_consent_ref={cross}"
     try:
         seen = frozenset(row.msg_id for row in await city.history(need_id=need_id))
     except CapError:
         seen = frozenset()
     answered = lambda h: facility_reply(h, facility, seen) is not None
     if not await send(city, facility, text):
-        await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable La struttura non è raggiungibile. Ci contatti per cercare un'alternativa.")
+        # A 4xx is final: never resend it. Say so and offer what is still reachable.
+        await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable "
+                   "La struttura non è raggiungibile: cerco un'alternativa. / The facility is unreachable: I am looking for an alternative.")
+        await rebook(city, need_id, citizen, frozenset({selected["slot_id"], facility}))
         return
     history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
     if not answered(history):
@@ -444,15 +686,16 @@ async def handle(city: City, message) -> None:
                 return
             facility = selected["facility"]
             consent = data.get("consent_ref", "")
+            cross = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
+                          if row.sender == citizen and act(row.text) == "consent"
+                          and fields(row.text).get("purpose") == "cross_asst"), "")
             if not consent:
-                consent = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
-                                if row.sender == citizen and act(row.text) == "consent"
-                                and fields(row.text).get("purpose") == "cross_asst"), "")
+                consent = cross
             if not consent:
                 await send(city, citizen, "consent purpose=booking Posso procedere con la prenotazione scelta?")
                 return
             if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
-                await confirm_at_facility(city, message.need_id, citizen, selected, consent)
+                await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
             return
         if kind == "consent" and data.get("consent_ref"):
             if data.get("purpose") == "cross_asst" and sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
