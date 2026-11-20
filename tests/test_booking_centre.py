@@ -77,6 +77,23 @@ class BookingTest(unittest.TestCase):
             asyncio.run(booking.handle(city, incoming))
             self.assertEqual(city.out, [])
 
+    def test_all_contacted_facilities_unavailable_informs_citizen(self):
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner/h')]
+        incoming = msg('agent:partner/h', 'unavailable procedure=VIS-FIS')
+        city = FakeCity(rows + [incoming])
+        asyncio.run(booking.handle(city, incoming))
+        self.assertTrue(any(to == 'citizen:1' and 'non hanno trovato posti' in text for to, text in city.out))
+
+    def test_first_unavailable_does_not_hide_other_pending_partners(self):
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner/h'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner2/h')]
+        incoming = msg('agent:partner/h', 'unavailable procedure=VIS-FIS')
+        city = FakeCity(rows + [incoming])
+        asyncio.run(booking.handle(city, incoming))
+        self.assertEqual(city.out, [])
+
     def test_offer_parser_handles_multiple_lines(self):
         city = city_id()
         rows = [msg(city, 'offer offer_id=a slot_id=s1\noffer offer_id=b slot_id=s2', 'citizen:1')]

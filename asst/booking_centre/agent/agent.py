@@ -427,9 +427,15 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     previous_offers = offers(history, city.agent_id, citizen)
     cancelled = set()
     for row in history:
-        if act(row.text) != "cancel" or not row.sender.startswith("agent:"):
+        if act(row.text) != "cancel":
             continue
         prior = previous_offers.get(fields(row.text).get("offer_id", ""))
+        if row.sender == city.agent_id and fields(row.text).get("reason") == "facility_unavailable":
+            if prior:
+                cancelled.add(prior.get("slot_id"))
+            continue
+        if not row.sender.startswith("agent:"):
+            continue
         if not prior and not fields(row.text).get("offer_id"):
             prior = next((fields(m.text) for m in reversed(history)
                           if m.sender == city.agent_id and m.recipient == row.sender
@@ -697,10 +703,17 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         seen = frozenset()
     answered = lambda h: facility_reply(h, facility, seen) is not None
     if not await send(city, facility, text):
+<<<<<<< HEAD
         # A 4xx is final: never resend it. Say so and offer what is still reachable.
         await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable "
                    "La struttura non è raggiungibile: cerco un'alternativa. / The facility is unreachable: I am looking for an alternative.")
         await rebook(city, need_id, citizen, frozenset({selected["slot_id"], facility}))
+=======
+        await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable La struttura non è raggiungibile. Cercherò un'alternativa.")
+        if selected.get("prescription_number"):
+            history = await city.history(need_id=need_id)
+            await search(city, need_id, history, citizen, selected["prescription_number"])
+>>>>>>> ed99a6d (improvements further here)
         return
     history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
     if not answered(history) and facility in TEAM_AGENTS:
@@ -834,6 +847,16 @@ async def handle(city: City, message) -> None:
         # Only accept a reply from an agent we actually contacted in this case.
         requested = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "need.request" for row in history)
         confirmed = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "confirm" for row in history)
+        if act(message.text) == "unavailable" and requested:
+            contacted = {row.recipient for row in history
+                         if row.sender == city.agent_id and act(row.text) == "need.request"}
+            unavailable = {row.sender for row in history
+                           if row.sender in contacted and act(row.text) == "unavailable"}
+            if contacted and contacted <= unavailable and not sent(history, city.agent_id, citizen, "Le strutture contattate non hanno trovato") and not any(
+                row.sender in contacted and act(row.text) == "offer" for row in history
+            ):
+                await send(city, citizen, "Le strutture contattate non hanno trovato posti disponibili. Ci contatti per ulteriore assistenza.")
+            return
         if kind in {"booking.receipt", "cancel"} and confirmed:
             forwarded = await relay_facility_reply(city, message.need_id, history, citizen, message)
             if forwarded and kind == "cancel":
