@@ -1,7 +1,7 @@
-agent_id: agent:mnypzmtn7wf0
+agent_id: agent:atp772whjkgd
 team: team:ltf-jecatt
 name: family_counseling
-version: 1.0.0
+version: 1.0.1
 cap_versions:
   - "1.0"
 profiles:
@@ -11,4 +11,4 @@ capabilities:
   - family_counseling.gynecology
 no_clinical_advice: true
 endpoints:
-  mailbox: agent:mnypzmtn7wf0
+  mailbox: agent:atp772whjkgd

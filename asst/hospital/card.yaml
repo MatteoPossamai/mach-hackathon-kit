@@ -1,4 +1,4 @@
-agent_id: agent:ch2vpkdrep1n
+agent_id: agent:nanpr5mgm2py
 team: team:ltf-jecatt
 name: hospital
 version: 1.0.0
@@ -11,4 +11,4 @@ capabilities:
   - hospital.physiatry
 no_clinical_advice: true
 endpoints:
-  mailbox: agent:ch2vpkdrep1n
+  mailbox: agent:nanpr5mgm2py

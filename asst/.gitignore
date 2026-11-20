@@ -1,0 +1,8 @@
+# Credenziali city: mai nel repo (il deploy rifiuta comunque .city)
+.city/
+*.pem
+*.vk
+.env
+__pycache__/
+*.pyc
+.venv/
