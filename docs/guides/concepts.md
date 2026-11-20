@@ -56,4 +56,4 @@ La fluidità non è valutata. Il giudice valuta solo fatti di mondo e di Ledger.
 
 ## Avanti
 
-Tornate al percorso lineare: [Per iniziare](getting-started.md) → [Sviluppare agenti](develop-agents.md) → [Livelli](../kit/levels.md) (le descrizioni escono in gara, in Il Sole 24 Token) → [Regole](../kit/e19-rules.md). Glossario: [glossary.md](glossary.md).
+Tornate al percorso lineare: [Per iniziare](getting-started.md) → [Sviluppare agenti](develop-agents.md) → [Livelli](../kit/levels.md) (le descrizioni escono in gara, in Il Token della Sera) → [Regole](../kit/e19-rules.md). Glossario: [glossary.md](glossary.md).

@@ -50,7 +50,7 @@ Modificate `card.yaml` in ogni cartella e impostate `role` in `city.yaml` allo s
 
 `agent/agent.py` è un `main` corto: legge il free text e il mittente (id, nome, ruolo, capabilities), chiede all’Index la lista di agenti, ne sceglie uno, gli chiede qualcosa e risponde al cittadino. I commenti `#` nel file dicono che fa ogni riga.
 
-Il care protocol (prescribe, offer, hold, commit, check-in, report) è l’esempio in [`templates/examples/agent.py`](../../templates/examples/agent.py). Copiatelo nel brain quando volete quella baseline. Cosa chiede il livello in vigore esce durante la gara nella colonna **Il Sole 24 Token** della scoreboard pubblica. Vedi [Gli otto livelli](../kit/levels.md).
+Il care protocol (prescribe, offer, hold, commit, check-in, report) è l’esempio in [`templates/examples/agent.py`](../../templates/examples/agent.py). Copiatelo nel brain quando volete quella baseline. Cosa chiede il livello in vigore esce durante la gara nella colonna **Il Token della Sera** della scoreboard pubblica. Vedi [Gli otto livelli](../kit/levels.md).
 
 Dopo aver impostato la card, cambiate solo `<agente>/agent/agent.py`. Lasciate il Dockerfile com’è: non ci si caricano file di dati. Un dato che non sta nel codice si legge da un’API esterna o da una fonte dati esterna. Il dettaglio è in [Template](../kit/e19-rules.md#template). Raggiungete la città solo tramite `city_sdk.city` (stdlib come `json` e `re` vanno bene).
 
@@ -107,7 +107,7 @@ Questi quattro comportamenti sono indicazioni opzionali. **Non** sono requisiti 
 
 ## Avanti
 
-1. [Gli otto livelli](../kit/levels.md) — le descrizioni escono in gara, in Il Sole 24 Token
+1. [Gli otto livelli](../kit/levels.md) — le descrizioni escono in gara, in Il Token della Sera
 2. [Regole del care journey](../kit/e19-rules.md)
 3. Note di ruolo sopra
 

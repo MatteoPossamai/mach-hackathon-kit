@@ -2443,7 +2443,7 @@ class Scoreboard(BaseModel):
     arrivals: ScoreboardArrivals | None = None
     press: list[PressItem] | None = Field(
         None,
-        description="ADR-100. Il Sole 24 Token: hall announcements for complexity, arrivals plan, care rules, faults, and admin dispatches. Newest last. Omitted when the press store has nothing yet. Rank moves stay on the LIVE ticker, not here.\n",
+        description="ADR-100. Il Token della Sera: hall announcements for complexity, arrivals plan, care rules, faults, and admin dispatches. Newest last. Omitted when the press store has nothing yet. Rank moves stay on the LIVE ticker, not here.\n",
         max_length=40,
     )
     updated_at: AwareDatetime

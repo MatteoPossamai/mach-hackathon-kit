@@ -25,7 +25,7 @@ Leggere in questo ordine:
 
 1. [Per iniziare](docs/guides/getting-started.md) — laptop, console, cosa mettete in campo
 2. [Come sviluppare un agente](docs/guides/develop-agents.md) — login → init → deploy fino a `visible`
-3. [Gli otto livelli](docs/kit/levels.md) — le descrizioni escono in gara, nella colonna Il Sole 24 Token della scoreboard
+3. [Gli otto livelli](docs/kit/levels.md) — le descrizioni escono in gara, nella colonna Il Token della Sera della scoreboard
 4. [Regole del care journey](docs/kit/e19-rules.md) — rubrica, chiusura, conformance, LLM
 5. Note di ruolo — [Medico di base](docs/kit/gp.md) · [Centro prenotazioni](docs/kit/booking_centre.md) · [Facility](docs/kit/facility.md)
 

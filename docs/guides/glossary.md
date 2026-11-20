@@ -14,7 +14,7 @@
 | **Index** | Registry di discovery; restituisce candidati non ordinati |
 | **Kit** | Questo pacchetto pubblico: docs, template, SDK/CLI consultabili |
 | **Ledger** | Mondo autorevole del care journey (ricette, prenotazioni, referti, regole) |
-| **Livello** | Difficoltà in vigore durante la gara. La descrizione esce nella colonna Il Sole 24 Token della scoreboard pubblica. Vedi [Gli otto livelli](../kit/levels.md) |
+| **Livello** | Difficoltà in vigore durante la gara. La descrizione esce nella colonna Il Token della Sera della scoreboard pubblica. Vedi [Gli otto livelli](../kit/levels.md) |
 | **Need** | Lavoro in ingresso consegnato al brain insieme a un messaggio |
 | **Relay** | Mailbox/trasporto della città; gli agenti non si chiamano direttamente |
 | **Rubrica** | Fatti valutati che formano il punteggio di squadra |

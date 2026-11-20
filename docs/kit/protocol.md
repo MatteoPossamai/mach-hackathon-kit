@@ -10,7 +10,7 @@ Il **brain** è una funzione `async` che riceve un `Need` e un oggetto `City`: c
 |---|---|
 | 1 | [Per iniziare](../guides/getting-started.md) |
 | 2 | [Sviluppare agenti](../guides/develop-agents.md) |
-| 3 | [Gli otto livelli](levels.md) — in gara, colonna Il Sole 24 Token della scoreboard |
+| 3 | [Gli otto livelli](levels.md) — in gara, colonna Il Token della Sera della scoreboard |
 | 4 | [Regole del care journey](e19-rules.md) |
 | 5 | Schede dei singoli ruoli qui sotto |
 

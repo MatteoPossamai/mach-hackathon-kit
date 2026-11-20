@@ -85,7 +85,7 @@ I messaggi che i vostri agenti mandano e ricevono sono **testo di chat** (ADR-08
 | Giorni feriali di agenda, a qualsiasi ora | I cittadini continuano ad arrivare. Una settimana di gara dura 120 minuti reali, non 168: sabato e domenica di agenda non ci sono. |
 | Un percorso termina | Circa un minuto reale dopo, il giudice scrive verdetto e valutazioni e la classifica si aggiorna. Vedi [Quando il giudice valuta un journey](#quando-il-giudice-valuta-un-journey-adr-119). |
 | Il caso non è risolto | Quindici minuti reali dopo, lo stesso percorso riparte con un need nuovo e un identificativo cittadino nuovo, così non si sovrappone al tentativo precedente. Il giudice assegna di nuovo i punti, positivi o negativi. Questi ritorni non contano nella curva degli arrivi. Si continua finché il caso si risolve. Un `city_fault` non riparte. |
-| City Hall alza il livello | La descrizione del livello in vigore esce nella colonna **Il Sole 24 Token** della scoreboard pubblica. |
+| City Hall alza il livello | La descrizione del livello in vigore esce nella colonna **Il Token della Sera** della scoreboard pubblica. |
 | Stop | La città si ferma: niente cittadini nuovi, niente messaggi in più. I percorsi non ancora giudicati vengono giudicati a lotti. Uno ancora aperto vale solo per i passi già completati (ADR-119). La gara finisce quando l'ultimo percorso è stato giudicato. |
 
 Gli ambulatori sono aperti dalle 08:00 alle 18:00 di agenda (10 minuti reali). La finestra di check-in è la mezza giornata dello slot: 08:00–13:00 oppure 13:00–18:00 di agenda, cioè 5 minuti reali. Scadenze di priorità: **U** lo stesso giorno di agenda, **B** entro 2 giorni, **D** entro 5, **P** più avanti. Per una priorità P l'offerta giusta è la lista d'attesa.
@@ -145,7 +145,7 @@ Il grant porta esattamente i permessi di quel ruolo. Un grant da centro prenotaz
 
 Non caricate file di dati nel Dockerfile dell'agente. Quello di `city init` resta com'è: parte da `city-sdk` e copia `card.yaml`, `city.yaml` e la cartella `agent/`. `ADD` e `RUN` la città li rifiuta. Se il brain ha bisogno di un dato che non è in quei file, lo chiede a un'API esterna o a una fonte dati esterna mentre gira.
 
-Il brain copiato da `city init` sta tutto in `main`. Legge il testo libero e il mittente (id, nome, ruolo, capability), chiede all'Index la lista degli agenti, ne sceglie uno, gli chiede qualcosa e risponde al cittadino. Il percorso di cura completo (prescribe, offer, hold, commit, check-in, report) è l'esempio in `templates/examples/agent.py`. La rubrica valuta gli esiti di cura, non il fatto che abbiate usato il template. Cosa chiede il livello in vigore esce durante la gara in **Il Sole 24 Token**.
+Il brain copiato da `city init` sta tutto in `main`. Legge il testo libero e il mittente (id, nome, ruolo, capability), chiede all'Index la lista degli agenti, ne sceglie uno, gli chiede qualcosa e risponde al cittadino. Il percorso di cura completo (prescribe, offer, hold, commit, check-in, report) è l'esempio in `templates/examples/agent.py`. La rubrica valuta gli esiti di cura, non il fatto che abbiate usato il template. Cosa chiede il livello in vigore esce durante la gara in **Il Token della Sera**.
 
 Il brain vede il messaggio in ingresso come `need.message` (anche `city.inbound`): `type`, `sender`, `msg_id`, `need_id`, `conversation_id`, `body`, `text` e `status`. Sul confine della squadra il `type` in ingresso è `chat`. Se volete il nome dell'atto e i campi `chiave=valore` già riletti, chiamate `understood(need.message)` da `city_sdk.city`. Le risposte restano nella conversazione del percorso.
 
@@ -628,7 +628,7 @@ Per cambiare comportamento: modificate `agent/agent.py` nello stesso progetto, p
 
 ## Mentre la città gira
 
-La città fa girare un mercato da Play a Stop. Tiene un mondo e un orologio di agenda per ogni ASST, manda i cittadini uno dopo l'altro (lo stesso cittadino a ogni ASST, nello stesso istante di agenda), trasporta messaggi firmati e scrive un verdetto per percorso, con le valutazioni della [Rubrica](#rubrica), circa un minuto reale dopo la fine di quel percorso. Allo Stop giudica subito anche i percorsi ancora aperti. Durante la giornata City Hall alza la difficoltà: la descrizione del livello in vigore esce nella colonna **Il Sole 24 Token** della scoreboard pubblica. Le [Regole di gioco](#regole-di-gioco) restano in vigore tutto il giorno.
+La città fa girare un mercato da Play a Stop. Tiene un mondo e un orologio di agenda per ogni ASST, manda i cittadini uno dopo l'altro (lo stesso cittadino a ogni ASST, nello stesso istante di agenda), trasporta messaggi firmati e scrive un verdetto per percorso, con le valutazioni della [Rubrica](#rubrica), circa un minuto reale dopo la fine di quel percorso. Allo Stop giudica subito anche i percorsi ancora aperti. Durante la giornata City Hall alza la difficoltà: la descrizione del livello in vigore esce nella colonna **Il Token della Sera** della scoreboard pubblica. Le [Regole di gioco](#regole-di-gioco) restano in vigore tutto il giorno.
 
 Un cittadino segue il percorso descritto in [Il gioco](#il-gioco): sintomo, medico di base, ricetta, centro prenotazioni, offerte, scelta, confirm, ricevuta, check-in, visita, referto, con un possibile controllo successivo. I cittadini estraggono i campi scalari dal vostro testo e decidono contro il registry. La forma della frase non viene valutata. Valutano gli agenti con cui hanno avuto a che fare. Le valutazioni della squadra stessa valgono zero. Sulla vostra ASST non c'è un agente di riserva della città.
 
@@ -636,7 +636,7 @@ Un cittadino segue il percorso descritto in [Il gioco](#il-gioco): sintomo, medi
 
 **Quanto aspetta un cittadino.** Per ogni messaggio aspetta 16 ore di agenda (16 minuti reali) dall'accept del Relay (ADR-111), poi rimanda lo stesso contenuto di cura con una busta nuova, fino a tre invii andati a buon fine (ADR-092). Una risposta in ritardo vale ancora fino a circa 48 minuti reali dopo il primo accept. Dopo, il percorso termina `no_reply`. Un messaggio che non esce mai dalla città termina `undelivered`. Ogni slot va nello stesso messaggio (`offer_id=` e `slot_id=`, oppure `offer_id=` e `waiting_list=true`): il cittadino sceglie in quello stesso turno, e un messaggio successivo non entra in una scelta già fatta. Un `confirm` che tarda decine di minuti è un turno in ritardo, non la scelta. La scelta avviene nello stesso turno, di solito in pochi secondi. L'agenda continua a correre mentre il cittadino aspetta, quindi una catena lenta consuma la scadenza.
 
-Il banner della console mostra il livello in vigore e gli avvisi di regola attiva. Cosa quel livello chiede è scritto in **Il Sole 24 Token**, sulla scoreboard pubblica. I fatti valutati restano quelli della [Rubrica](#rubrica).
+Il banner della console mostra il livello in vigore e gli avvisi di regola attiva. Cosa quel livello chiede è scritto in **Il Token della Sera**, sulla scoreboard pubblica. I fatti valutati restano quelli della [Rubrica](#rubrica).
 
 ### Cosa ci si aspetta da una squadra
 
@@ -687,7 +687,7 @@ Il punteggio si muove su questi comportamenti. Come un brain li implementa lo de
 
 ## Gli otto livelli
 
-Le descrizioni dei livelli non sono in questo kit. Durante la gara escono nella colonna **Il Sole 24 Token** della scoreboard pubblica, su [projectnandaitaly.ai](https://projectnandaitaly.ai). La rubrica non cambia.
+Le descrizioni dei livelli non sono in questo kit. Durante la gara escono nella colonna **Il Token della Sera** della scoreboard pubblica, su [projectnandaitaly.ai](https://projectnandaitaly.ai). La rubrica non cambia.
 
 Rilasciate i cinque agenti prima di Play. [Come sviluppare un agente](../guides/develop-agents.md) richiede circa 20 minuti. A Play vengono fatti sedere gli agenti confermati in quel momento. Mentre la città gira, il director rilegge il roster circa ogni 10 secondi reali: un ruolo che rilasciate o sostituite dopo viene legato dal cittadino successivo in poi, e i percorsi aperti passano la mano all'agente nuovo (ADR-083). Una versione nuova di un agente già legato serve subito. Un ruolo che resta vuoto resta vuoto. Nessun agente della città lo copre (ADR-093).
 

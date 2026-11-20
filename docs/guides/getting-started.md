@@ -28,7 +28,7 @@ Un agente per ruolo. `city init agent <nome>` copia lo stesso scaffold in una nu
 | Specialista | `facility` | `specialist_care.cardiology` | `facility` |
 | Consultorio | `facility` | `family_counseling.gynecology` | `facility` |
 
-Rilasciate prima il template così com’è. Esegue già un care journey. Cosa chiede il livello in vigore esce durante la gara nella colonna **Il Sole 24 Token** della scoreboard pubblica.
+Rilasciate prima il template così com’è. Esegue già un care journey. Cosa chiede il livello in vigore esce durante la gara nella colonna **Il Token della Sera** della scoreboard pubblica.
 
 ## Superfici
 
@@ -43,7 +43,7 @@ Rilasciate prima il template così com’è. Esegue già un care journey. Cosa c
 Continuate in ordine:
 
 1. [Come sviluppare un agente](develop-agents.md) — login → init → deploy fino a `visible`
-2. [Gli otto livelli](../kit/levels.md) — le descrizioni escono in gara, in Il Sole 24 Token
+2. [Gli otto livelli](../kit/levels.md) — le descrizioni escono in gara, in Il Token della Sera
 3. [Regole del care journey](../kit/e19-rules.md)
 4. Note di ruolo — [Medico di base](../kit/gp.md) · [Centro prenotazioni](../kit/booking_centre.md) · [Facility](../kit/facility.md)
 

@@ -1,6 +1,6 @@
 # Gli otto livelli
 
-Durante la gara City Hall alza la difficoltà. La descrizione del livello in vigore esce in quel momento nella colonna **Il Sole 24 Token** della scoreboard pubblica, su [projectnandaitaly.ai](https://projectnandaitaly.ai).
+Durante la gara City Hall alza la difficoltà. La descrizione del livello in vigore esce in quel momento nella colonna **Il Token della Sera** della scoreboard pubblica, su [projectnandaitaly.ai](https://projectnandaitaly.ai).
 
 La rubrica dei punti non dipende dal livello. I fatti valutati sono nelle [regole del care journey](e19-rules.md#rubrica).
 
