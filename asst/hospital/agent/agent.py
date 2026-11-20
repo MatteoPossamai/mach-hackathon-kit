@@ -1205,6 +1205,9 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
             await _say(city, peer, "cancel reason=no_availability" + (f" request_id={request_id}" if request_id else "")
                        + " Qui solo visite fisiatriche (VIS-FIS).")
             return
+    if not _has_agenda(chat) or _latest_slots(chat) is None:
+        # MACH-1: first answer within 10 s, in plain words, before the Ledger lookups.
+        await _say(city, peer, "Ricevuto, verifico la disponibilità. / Received, checking availability.")
     if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):
         await _say(city, LEDGER, "agenda")
     if not _asked(chat, agent, procedure, 1):
@@ -1452,6 +1455,7 @@ async def _on_committed_core(city: City, message: Message, chat: list[Message]) 
     await _say(
         city, target,
         f"booking.receipt booking_id={booking_id} ledger_ref={ledger_ref}"
+        + _receipt_ids(chat, city.agent_id, slot)
         + (_RECEIPT_EN if _en(chat) else _RECEIPT_IT),
     )
 
@@ -1476,7 +1480,8 @@ async def _on_refused(
         and offer_id
         and not _we(chat, agent, f"offer_id={offer_id}", to=target, word="cancel")
     ):
-        await _say(city, target, f"cancel offer_id={offer_id} reason=facility_cancelled")
+        reason = "rule_p2_no_consent" if "CONSENT" in (message.text or "") else "hold_refused"
+        await _say(city, target, f"cancel offer_id={offer_id} slot_id={slot} reason={reason}")
     if hold_self:
         await _advance(city, message, chat, fixed="CONS-GIN", replacing=True)
 
@@ -1746,3 +1751,13 @@ async def _say(city: City, to: str, text: str) -> bool:
         if rest:
             text = head + sep + " ".join(_PROSE_SWAP.get(word, word) for word in rest.split(" "))
     return await _say_raw(city, to, text)
+
+
+def _receipt_ids(chat: list[Message], agent: str, slot: str) -> str:
+    """MACH-1 receipt fields: the offer and slot the booking centre confirmed."""
+
+    offer_id = ""
+    for row in chat:
+        if row.recipient == agent and fields_of(row.text).get("slot_id") == slot:
+            offer_id = fields_of(row.text).get("offer_id", offer_id)
+    return (f" offer_id={offer_id}" if offer_id else "") + (f" slot_id={slot}" if slot else "")

@@ -216,3 +216,20 @@ class HospitalCollaborationTest(unittest.TestCase):
         notices = [text for to, text in city.out if to == hospital._TEAM_GP]
         self.assertEqual(len(notices), 1)
         self.assertTrue(notices[0].startswith('booking.notice booking_id=B1 prescription_number=prescription_number-N-1'))
+
+
+class Mach1Test(unittest.TestCase):
+    def test_partner_gets_a_plain_ack_first_then_offers(self):
+        C = HospitalCollaborationTest().ledger_city()
+        incoming = msg('agent:other/bc', 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=r9', mid='p9')
+        city = C([incoming])
+        asyncio.run(hospital._partner_request(city, incoming, list(city.rows)))
+        to_peer = [text for to, text in city.out if to == 'agent:other/bc']
+        self.assertTrue(to_peer[0].startswith('Ricevuto, verifico'))
+        self.assertNotIn('=', to_peer[0])
+        self.assertTrue(any('slot_id=S1' in text for text in to_peer[1:]))
+
+    def test_receipt_ids_name_offer_and_slot(self):
+        rows = [msg('agent:team/booking', 'confirm offer_id=O7 slot_id=S7 citizen=citizen:1', mid='c7')]
+        rows[0] = Message(type='chat', sender='agent:team/booking', recipient='agent:team/hospital', msg_id='c7', need_id='N-1', body={'text': rows[0].text})
+        self.assertEqual(hospital._receipt_ids(rows, 'agent:team/hospital', 'S7'), ' offer_id=O7 slot_id=S7')
