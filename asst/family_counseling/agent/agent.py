@@ -183,6 +183,9 @@ _LANG_ALIASES: dict[str, str] = {
     "albanian": "sq",
     "georgiano": "ka",
     "georgian": "ka",
+    "farsi": "fa",
+    "persiano": "fa",
+    "persian": "fa",
     "urdu": "ur",
     "hindi": "hi",
     "tagalog": "tl",
@@ -1044,11 +1047,22 @@ def _fitting_slots(
                 continue
             if at <= earliest or (horizon is not None and at >= horizon):
                 continue
-            if not _speaks(doctor, lang, dyn_docs):
+            inline_langs = frozenset(
+                p.strip().lower()
+                for p in re.split(r"[/,|]", slot.get("doctor_lang") or slot.get("languages") or "")
+                if p.strip()
+            )
+            if inline_langs:
+                if lang and lang not in inline_langs and not ("*" in inline_langs and lang not in {"it", "en"}):
+                    continue
+            elif not _speaks(doctor, lang, dyn_docs):
                 continue
             dyn = dyn_docs.get(doctor)
             spec = _DOCTORS.get(doctor.rsplit("-", 1)[-1])
-            doc_gender = (dyn[1] if dyn and dyn[1] else (spec[1] if spec else ""))
+            doc_gender = (
+                (slot.get("doctor_gender") or slot.get("gender") or "").strip().lower()
+                or (dyn[1] if dyn and dyn[1] else (spec[1] if spec else ""))
+            )
             doc_days = (dyn[2] if dyn and dyn[2] else (spec[2] if spec else frozenset()))
             day = _normalize_day(slot.get("day") or slot.get("agenda_day", ""))
             if doc_days and day and day not in doc_days:
@@ -1101,6 +1115,7 @@ def _offer_line(
     agent_id: str,
     priority: str | None = None,
     request_id: str | None = None,
+    include_doctor_attrs: bool = False,
 ) -> str:
     facility = slot.get("facility") or agent_id
     at_val = slot.get("at") or slot.get("agenda_date", "")
@@ -1117,6 +1132,14 @@ def _offer_line(
     ]
     if day_val:
         parts.append(f"agenda_day={day_val}")
+    if include_doctor_attrs:
+        spec = _DOCTORS.get(slot["doctor_id"].rsplit("-", 1)[-1])
+        if spec is not None:
+            langs = "/".join(sorted(spec[0]))
+            if langs:
+                parts.append(f"doctor_lang={langs}")
+            if spec[1]:
+                parts.append(f"doctor_gender={spec[1]}")
     if priority:
         parts.append(f"priority={priority}")
     if request_id:
@@ -1287,7 +1310,7 @@ async def _offer_to_citizen(
         # Level 4 & 5: when no local CONS-GIN slot fits (scarcity or rare language/gender),
         # query partner family_counseling clinics anonymously (ZERO citizen data sent!).
         contacted = await _find_partner_counseling(
-            city, message.need_id, chat, priority=priority or "B"
+            city, message.need_id, chat, priority=priority or "B", lang=lang
         )
         if contacted:
             reply = (
@@ -1322,7 +1345,7 @@ def _partner_request_id(need_id: str | None) -> str:
 
 
 async def _find_partner_counseling(
-    city: City, need_id: str | None, chat: list[Message], *, priority: str
+    city: City, need_id: str | None, chat: list[Message], *, priority: str, lang: str = ""
 ) -> int:
     """Anonymously query partner ``family_counseling`` clinics on the ring (ZERO citizen data)."""
     req_id = _partner_request_id(need_id)
@@ -1343,6 +1366,7 @@ async def _find_partner_counseling(
         if peers:
             break
 
+    lang_part = f" lang={lang}" if lang else ""
     contacted = 0
     for peer in peers:
         if contacted >= 8:
@@ -1358,7 +1382,7 @@ async def _find_partner_counseling(
             city,
             peer.agent_id,
             f"need.request service_type=family_counseling.gynecology procedure={PROCEDURE} "
-            f"priority={priority} request_id={req_id}",
+            f"priority={priority}{lang_part} request_id={req_id}",
         ):
             contacted += 1
     return contacted
@@ -1640,11 +1664,18 @@ async def _on_agent_availability_request(
     )
     fresh_slots = [s for s in slots if s["slot_id"] not in cache]
     if fresh_slots:
-        for slot in fresh_slots[:3]:
-            line = _offer_line(
-                slot, agent_id=city.agent_id, priority=priority, request_id=request_id or None
+        lines = [
+            _offer_line(
+                slot,
+                agent_id=city.agent_id,
+                priority=priority,
+                request_id=request_id or None,
+                include_doctor_attrs=True,
             )
-            if await _say(city, message.sender, line):
+            for slot in fresh_slots[:3]
+        ]
+        if await _say(city, message.sender, "\n".join(lines)):
+            for slot in fresh_slots[:3]:
                 cache.add(slot["slot_id"])
         return
 
@@ -1953,21 +1984,33 @@ async def _on_confirm(city: City, message: Message, chat: list[Message], key: st
 
 
 def _receipt_text(
-    booking_id: str, ledger_ref: str, *, chat: list[Message], to_citizen: bool
+    booking_id: str,
+    ledger_ref: str,
+    *,
+    chat: list[Message],
+    to_citizen: bool,
+    slot_id: str = "",
+    offer_id: str = "",
 ) -> str:
-    if to_citizen:
-        english = _is_english(chat)
-        lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
-        note = (
-            f"{lead}Your family counseling appointment is booked (direct access, no referral needed). "
-            "Please keep this receipt for arrival."
-            if english
-            else f"{lead}Il suo appuntamento al consultorio è confermato (senza ricetta). "
-            "Conservi questa ricevuta per il check-in."
-        )
-    else:
-        note = "Prenotazione confermata per il consultorio (CONS-GIN)."
-    return f"booking.receipt booking_id={booking_id} ledger_ref={ledger_ref} {note}"
+    parts = ["booking.receipt", f"booking_id={booking_id}", f"ledger_ref={ledger_ref}"]
+    if not to_citizen:
+        if slot_id:
+            parts.append(f"slot_id={slot_id}")
+        if offer_id:
+            parts.append(f"offer_id={offer_id}")
+        parts.append("Prenotazione confermata per il consultorio (CONS-GIN).")
+        return " ".join(parts)
+    english = _is_english(chat)
+    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    note = (
+        f"{lead}Your family counseling appointment is booked (direct access, no referral needed). "
+        "Please keep this receipt for arrival."
+        if english
+        else f"{lead}Il suo appuntamento al consultorio è confermato (senza ricetta). "
+        "Conservi questa ricevuta per il check-in."
+    )
+    parts.append(note)
+    return " ".join(parts)
 
 
 async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
@@ -2007,7 +2050,9 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     slot = _safe_token(fields.get("slot_id")) or _hold_slot(
         chat, city.agent_id, _safe_token(fields.get("hold_id")) or booking_id
     )
-    requester, _, _, _ = _booking_context(chat, city.agent_id, slot) if slot else ("", "", "", "")
+    requester, _, offer_id, _ = (
+        _booking_context(chat, city.agent_id, slot) if slot else ("", "", "", "")
+    )
     target = requester or _citizen(chat)
     if not target:
         return
@@ -2016,7 +2061,14 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     await _say(
         city,
         target,
-        _receipt_text(booking_id, ledger_ref, chat=chat, to_citizen=target.startswith("citizen:")),
+        _receipt_text(
+            booking_id,
+            ledger_ref,
+            chat=chat,
+            to_citizen=target.startswith("citizen:"),
+            slot_id=slot,
+            offer_id=offer_id,
+        ),
         allowed_citizen=_citizen(chat),
     )
 

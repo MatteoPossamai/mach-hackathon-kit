@@ -206,6 +206,7 @@ def _offer_line(
     number: str | None = None,
     priority: str | None = None,
     request_id: str | None = None,
+    include_doctor_attrs: bool = False,
 ) -> str:
     facility = slot.get("facility") or agent_id
     at_val = slot.get("at") or slot.get("agenda_date", "")
@@ -222,6 +223,14 @@ def _offer_line(
     ]
     if day_val:
         parts.append(f"agenda_day={day_val}")
+    if include_doctor_attrs:
+        spec = _DOCTORS.get(slot["doctor_id"].rsplit("-", 1)[-1])
+        if spec is not None:
+            langs = "/".join(sorted(spec[0]))
+            if langs:
+                parts.append(f"doctor_lang={langs}")
+            if spec[1]:
+                parts.append(f"doctor_gender={spec[1]}")
     if priority:
         parts.append(f"priority={priority}")
     if number:

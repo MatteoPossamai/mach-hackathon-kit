@@ -88,15 +88,19 @@ async def _on_agent_availability_request(
             if (not explicit_lang and not gender)
             else fresh_slots[:3]
         )
-        for slot in selected:
-            line = _offer_line(
+        lines = [
+            _offer_line(
                 slot,
                 agent_id=city.agent_id,
                 procedure=requested_proc,
                 priority=priority,
                 request_id=request_id or None,
+                include_doctor_attrs=True,
             )
-            if await _say(city, message.sender, line):
+            for slot in selected
+        ]
+        if await _say(city, message.sender, "\n".join(lines)):
+            for slot in selected:
                 cache.add(slot["slot_id"])
         return
 

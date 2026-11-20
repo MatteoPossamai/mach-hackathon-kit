@@ -215,19 +215,31 @@ async def _on_confirm(city: City, message: Message, chat: list[Message]) -> None
 
 
 def _receipt_text(
-    booking_id: str, ledger_ref: str, *, chat: list[Message], to_citizen: bool
+    booking_id: str,
+    ledger_ref: str,
+    *,
+    chat: list[Message],
+    to_citizen: bool,
+    slot_id: str = "",
+    offer_id: str = "",
 ) -> str:
-    if to_citizen:
-        english = _is_english(chat)
-        lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
-        note = (
-            f"{lead}Your cardiology appointment is confirmed. Please keep this receipt for check-in."
-            if english
-            else f"{lead}La sua prenotazione cardiologica è confermata. Conservi questa ricevuta per il check-in."
-        )
-    else:
-        note = "Prenotazione confermata per la visita specialistica cardiologica."
-    return f"booking.receipt booking_id={booking_id} ledger_ref={ledger_ref} {note}"
+    parts = ["booking.receipt", f"booking_id={booking_id}", f"ledger_ref={ledger_ref}"]
+    if not to_citizen:
+        if slot_id:
+            parts.append(f"slot_id={slot_id}")
+        if offer_id:
+            parts.append(f"offer_id={offer_id}")
+        parts.append("Prenotazione confermata per la visita specialistica cardiologica.")
+        return " ".join(parts)
+    english = _is_english(chat)
+    lead = _empathy_lead(english=english, anxious=_is_anxious(chat))
+    note = (
+        f"{lead}Your cardiology appointment is confirmed. Please keep this receipt for arrival."
+        if english
+        else f"{lead}La sua prenotazione cardiologica è confermata. Conservi questa ricevuta per il check-in."
+    )
+    parts.append(note)
+    return " ".join(parts)
 
 
 async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
@@ -276,7 +288,7 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     slot = _safe_token(fields.get("slot_id")) or _hold_slot(
         chat, city.agent_id, _safe_token(fields.get("hold_id")) or booking_id
     )
-    requester, _, _, _, _ = (
+    requester, _, _, offer_id, _ = (
         _booking_context(chat, city.agent_id, slot) if slot else ("", "", None, "", "")
     )
     target = requester or _citizen(chat)
@@ -288,7 +300,14 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     await _say(
         city,
         target,
-        _receipt_text(booking_id, ledger_ref, chat=chat, to_citizen=target.startswith("citizen:")),
+        _receipt_text(
+            booking_id,
+            ledger_ref,
+            chat=chat,
+            to_citizen=target.startswith("citizen:"),
+            slot_id=slot,
+            offer_id=offer_id,
+        ),
         allowed_citizen=_citizen(chat),
     )
 
