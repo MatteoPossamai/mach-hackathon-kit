@@ -25,6 +25,31 @@ class FakeCity:
         return self.rows
     async def say(self, to, text):
         self.out.append((to, text))
+    async def llm(self, messages, need_id=None):
+        from city_sdk.city import CapError
+        raise CapError('KEY_UNKNOWN', 'no gateway in tests')
+
+
+class BookingImprovementsTest(unittest.TestCase):
+    def test_rx_number_in_free_text(self):
+        rows = [msg('citizen:1', 'Buongiorno, la mia ricetta è prescription_number-N-2026-11-02-890910000031 grazie')]
+        self.assertEqual(booking.rx_from_text(rows, 'citizen:1', rows[0].text), 'prescription_number-N-2026-11-02-890910000031')
+        self.assertEqual(booking.rx_from_text([], 'citizen:1', 'nessun numero'), '')
+
+    def test_relax_soft_prefs_keep_language(self):
+        now = datetime(2026, 11, 20, tzinfo=timezone.utc)
+        slot = dict(slot_id='s1', doctor_id='doctor-h2', facility='agent:t/h', procedure='VIS-FIS', at='2026-11-21T12:00:00+00:00', day='thu')
+        self.assertEqual(booking.choose_slots([slot], 'VIS-FIS', 'B', now, {'gender': 'f'})[1], True)
+        self.assertEqual(booking.choose_slots([slot], 'VIS-FIS', 'B', now, {'lang': 'en'}), ([], False))
+        self.assertEqual(booking.choose_slots([slot], 'VIS-FIS', 'B', now, {}), ([slot], False))
+
+    def test_nl_preferences_parsed_and_validated(self):
+        class LlmCity(FakeCity):
+            async def llm(self, messages, need_id=None):
+                return {'content': 'Sure: {"lang": "en", "gender": "F", "days": "tue/sat/thu"}'}
+        rows = [msg('citizen:1', 'I need a female doctor, I can come Tuesday or Thursday')]
+        prefs = asyncio.run(booking.nl_preferences(LlmCity(rows), rows, 'citizen:1'))
+        self.assertEqual(prefs, {'lang': 'en', 'gender': 'f', 'days': 'tue/thu'})
 
 
 class BookingTest(unittest.TestCase):

@@ -37,8 +37,8 @@ Con `--once` stampa lo stato attuale ed esce. I dati vengono da `https://project
 ## Chi fa cosa
 | Agente | Owner |
 |---|---|
-| booking_centre | Matteo |
-| gp | Diego |
+| booking_centre | Diego |
+| gp | Matteo |
 | specialist | Pietro |
 | hospital | Diego |
 | family_counseling | Gabriele |
