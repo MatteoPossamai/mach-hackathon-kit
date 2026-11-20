@@ -1949,7 +1949,7 @@ async def _on_checkin(city: City, message: Message, chat: list[Message]) -> None
     if _checked_in_booking_id(chat) == booking_id and _asked_report_consent(chat, agent, booking_id):
         remind = (
             f"consent purpose=report_sharing {lead}Your check-in is already recorded. "
-            "May I share your visit report (report_sharing)? If you prefer to keep it private, "
+            "May I share your visit summary (report_sharing)? If you prefer to keep it private, "
             "just let me know and I will file it unshared."
             if english
             else f"consent purpose=report_sharing {lead}Il suo check-in è già registrato. "
@@ -2028,7 +2028,7 @@ async def _after_checked_in(city: City, booking_id: str, chat: list[Message]) ->
     if not _asked_report_consent(chat, agent, booking_id):
         ask = (
             f"consent purpose=report_sharing {lead}Your visit is complete. May I share your "
-            "report on the health record (report_sharing)? If you prefer not to share it, "
+            "visit summary on the health record (report_sharing)? If you prefer not to share it, "
             "please let me know and I will archive it privately."
             if english
             else f"consent purpose=report_sharing {lead}La visita è stata completata. Posso "
