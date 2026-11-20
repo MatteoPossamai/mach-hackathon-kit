@@ -146,6 +146,7 @@ _LOG = logging.getLogger("care")
 # the case history and never opens a turn. Wait briefly and read it back from history.
 _PULL_TRIES = 24
 _PULL_PAUSE = 0.25
+_HOSPITAL_LOCKS: dict[str, asyncio.Lock] = {}
 # Needs whose sent offers this process remembers; the oldest is forgotten first.
 _SENT_NEEDS = 4096
 
@@ -171,10 +172,22 @@ async def main(need: Need, city: City) -> None:
     if message is None:
         return
     text = message.text or need.summary
-    if clinical(text):
+    if message.sender.startswith("citizen:") and (need.is_emergency or _emergency(message)):
+        case = await city.history(need_id=message.need_id)
+        if not _we(case, city.agent_id, "escalate.emergency", to=message.sender, word="escalate.emergency"):
+            await _say(city, message.sender, "escalate.emergency reason=red_flag Capisco la sua preoccupazione. Chiami subito il 112 per ricevere assistenza.")
+        return
+    if message.sender.startswith("citizen:") and clinical(text):
         raise OutOfScope()
-    case = await city.history(need_id=message.need_id)
-    await handle(role_of(), city, message, case)
+    key = message.need_id or message.msg_id
+    lock = _HOSPITAL_LOCKS.setdefault(key, asyncio.Lock())
+    async with lock:
+        try:
+            case = await city.history(need_id=message.need_id)
+            await handle(role_of(), city, message, case)
+        finally:
+            if not getattr(lock, "_waiters", None):
+                _HOSPITAL_LOCKS.pop(key, None)
 
 
 def _asks_address(message: Message) -> bool:
@@ -999,6 +1012,8 @@ async def _on_confirm(
     slot = fields.get("slot_id") or offer.get("slot_id", "")
     facility = fields.get("facility") or offer.get("facility", "")
     if not slot or not consent:
+        if message.sender.startswith("agent:") and re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", offer_id):
+            await _say(city, message.sender, f"cancel offer_id={offer_id} reason=missing_booking_details")
         return
     citizen = fields.get("citizen") or (
         message.sender if message.sender.startswith("citizen:") else ""
@@ -1006,13 +1021,33 @@ async def _on_confirm(
     number = fields.get("prescription_number") or offer.get("prescription_number")
     book_here = hold_self or message.sender.startswith("agent:") or facility == agent
     if book_here:
+        if role_of() == "hospital":
+            # A confirmation is a request, not authority to book an arbitrary slot.
+            # Verify the sender through the Index and the slot through our Ledger.
+            if not message.sender.startswith("agent:") or not citizen.startswith("citizen:") or not number:
+                return
+            try:
+                peers = await city.find("booking_centre")
+            except CapError:
+                return
+            if not any(peer.agent_id == message.sender and peer.role == "booking_centre" for peer in peers):
+                return
+            chat = await _hospital_slot_history(city, message, chat, slot)
+            if not any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent
+                       for line in _all_slot_lines(chat)):
+                await _say(city, message.sender, f"cancel offer_id={offer_id} reason=slot_unavailable")
+                return
         if not _we(chat, agent, f"slot_id={slot}", to=LEDGER, word="hold"):
             parts = ["hold", f"slot_id={slot}"]
             if citizen:
                 parts.append(f"citizen={citizen}")
             if number:
                 parts.append(f"prescription_number={number}")
-            parts.append(f"consent_ref={consent}")
+            # Cross-ASST permission and booking consent can be separate grants.
+            # The cross-ASST grant accompanies the hold; the original booking
+            # consent is retained in the case and used for the commit.
+            hold_consent = fields.get("cross_asst_consent_ref") or consent
+            parts.append(f"consent_ref={hold_consent}")
             if not await _say(city, LEDGER, " ".join(parts)):
                 return
         await _finish_booking(city, message, chat, slot, hold_self=hold_self)
@@ -1122,6 +1157,28 @@ def _all_slot_lines(chat: list[Message]) -> list[str]:
     return lines
 
 
+async def _hospital_slot_history(city: City, message: Message, chat: list[Message], slot: str) -> list[Message]:
+    """Read our facility's slots from the Ledger, not from the requesting agent."""
+    def found(rows: list[Message]) -> bool:
+        return any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == city.agent_id
+                   for line in _all_slot_lines(rows))
+    if found(chat):
+        return chat
+    for page in range(1, _MAX_PAGE + 1):
+        if not await _say(city, LEDGER, f"world procedure=VIS-FIS page={page}"):
+            break
+        chat = await _until(city, message.need_id, chat, lambda rows: found(rows) or any(
+            row.sender == LEDGER and first_word(row.text) == "slots" and _page(row.text)[0] == page
+            for row in rows))
+        if found(chat):
+            break
+        result = next((row for row in reversed(chat) if row.sender == LEDGER
+                       and first_word(row.text) == "slots" and _page(row.text)[0] == page), None)
+        if result is None or page >= _page(result.text)[1]:
+            break
+    return chat
+
+
 async def _partner_request(city: City, message: Message, chat: list[Message]) -> None:
     """Another booking centre asks for our free slots (shortage on the ring).
 
@@ -1131,8 +1188,6 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
 
     agent = city.agent_id
     peer = message.sender
-    if any(row.sender == agent and row.recipient == peer for row in chat):
-        return  # already answered this peer on this case
     data = fields_of(message.text)
     body = message.body if message.type != "chat" and isinstance(message.body, dict) else {}
     procedure = data.get("procedure") or data.get("service_type") or str(
@@ -1140,6 +1195,13 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     )
     priority = data.get("priority") or str(body.get("priority") or "") or None
     request_id = data.get("request_id") or str(body.get("request_id") or "")
+    if request_id and not re.fullmatch(r"[A-Za-z0-9_.:/-]{1,128}", request_id):
+        return
+    if priority and priority not in {"U", "B", "D", "P"}:
+        return
+    if request_id and any(row.sender == agent and row.recipient == peer
+                          and fields_of(row.text).get("request_id") == request_id for row in chat):
+        return
     if not re.fullmatch(r"[A-Z]{2,5}-[A-Z]{2,5}", procedure or ""):
         return
     if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):
@@ -1154,6 +1216,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     now = _when("" if agenda is None else agenda.get("agenda_now", ""))
     world = _latest_slots(chat)
     if now is None or world is None:
+        await _say(city, peer, f"unavailable procedure={procedure}{' request_id=' + request_id if request_id else ''} Registro temporaneamente non disponibile.")
         return
     page, pages = _page(world)
     while page < min(pages, _MAX_PAGE):
@@ -1189,12 +1252,11 @@ def _en(chat: list[Message]) -> bool:
 
 _RECEIPT_IT = (
     " Prenotazione confermata. Al suo arrivo in ospedale faccia il check-in con questo "
-    "numero di prenotazione; porti tessera sanitaria e ricetta. La struttura è accessibile "
-    "in carrozzina."
+    "numero di prenotazione; porti tessera sanitaria e ricetta."
 )
 _RECEIPT_EN = (
     " Booking confirmed. When you arrive at the hospital, check in with this booking "
-    "number; bring your health card and prescription. The building is wheelchair accessible."
+    "number; bring your health card and prescription."
 )
 _CHECKIN_IT = " Check-in registrato: la attendiamo in reparto, verrà chiamato a breve."
 _CHECKIN_EN = " Check-in done: please wait in the ward, you will be called shortly."
@@ -1273,13 +1335,18 @@ async def _finish_booking(
     hold_id = fields_of(reply.text).get("hold_id", "")
     if not hold_id:
         return
-    done = await _await_line(
-        city, message.need_id, fresh, "committed", f"booking_id={hold_id}", op="commit"
-    )
-    if done is None:
+    # A booking ID and a hold ID are different identifiers. Match a new Ledger
+    # response to the hold when the response includes it, never assume equality.
+    known = {row.msg_id for row in fresh}
+    def result(rows: list[Message]) -> Message | None:
+        return next((row for row in reversed(rows) if row.msg_id not in known and row.sender == LEDGER
+                     and ((first_word(row.text) == "committed" and fields_of(row.text).get("hold_id", hold_id) == hold_id)
+                          or (first_word(row.text) == "refused" and "commit" in words(row.text)))), None)
+    fresh = await _until(city, message.need_id, fresh, lambda rows: result(rows) is not None)
+    reply = result(fresh)
+    if reply is None:
         _LOG.info("care.commit.missing", extra={"need_id": (message.need_id or "")[:48]})
         return
-    reply, fresh = done
     if first_word(reply.text) == "committed":
         await _on_committed(city, reply, fresh)
         return
@@ -1296,24 +1363,26 @@ async def _on_held(city: City, message: Message, chat: list[Message]) -> None:
         return
     if _our_commit(chat, city.agent_id, hold_id):
         return
-    _, consent, number = _booking_of(chat, city.agent_id, slot)
+    hold_index = next((index for index in range(len(chat) - 1, -1, -1)
+                       if chat[index].sender == city.agent_id and chat[index].recipient == LEDGER
+                       and first_word(chat[index].text) == "hold"
+                       and fields_of(chat[index].text).get("slot_id") == slot), None)
+    request = fields_of(chat[hold_index].text) if hold_index is not None else None
+    confirm = next((fields_of(row.text) for row in reversed(chat[:hold_index])
+                    if row.sender.startswith("agent:") and row.recipient == city.agent_id
+                    and "confirm" in words(row.text) and fields_of(row.text).get("slot_id") == slot), None) if hold_index is not None else None
+    consent = confirm.get("consent_ref", "") if request and confirm else ""
+    number = request.get("prescription_number") if request else None
     if not consent:
-        consent, held_number = _latest_hold(chat, city.agent_id)
-        number = number or held_number
-    need = fields.get("need_id", "")
-    if not consent and need.startswith("N-"):
-        # The citizen's booking consent is cons-<need_id>-booking. The held line does not
-        # echo the real ref, and the hold that carried it may not be in this page of history.
-        consent = f"cons-{need}-booking"
-    if not consent:
-        _LOG.info("care.held.noconsent", extra={"need_id": need[:48]})
+        _LOG.info("care.held.noconsent", extra={"need_id": (message.need_id or "")[:48]})
         return
     parts = [
         "commit",
         f"hold_id={hold_id}",
         f"consent_ref={consent}",
-        f"fence={fields.get('fence', '1')}",
     ]
+    if fields.get("fence"):
+        parts.append(f"fence={fields['fence']}")
     if number:
         parts.append(f"prescription_number={number}")
     await _say(city, LEDGER, " ".join(parts))
@@ -1325,9 +1394,27 @@ async def _on_committed(city: City, message: Message, chat: list[Message]) -> No
     ledger_ref = fields.get("ledger_ref", "")
     if not booking_id or not ledger_ref:
         return
-    slot = fields.get("slot_id") or _hold_slot(chat, city.agent_id, fields.get("hold_id", ""))
-    sender, _, _ = _booking_of(chat, city.agent_id, slot) if slot else ("", "", None)
-    target = sender or _citizen(chat)
+    hold_id = fields.get("hold_id", "")
+    if not hold_id and _our_commit(chat, city.agent_id, booking_id):
+        hold_id = booking_id
+    if not hold_id:
+        commits = {fields_of(row.text).get("hold_id", "") for row in chat
+                   if row.sender == city.agent_id and row.recipient == LEDGER and first_word(row.text) == "commit"}
+        commits.discard("")
+        if len(commits) == 1:
+            hold_id = next(iter(commits))
+    if not hold_id or not _our_commit(chat, city.agent_id, hold_id):
+        return
+    slot = _hold_slot(chat, city.agent_id, hold_id)
+    if fields.get("slot_id") and fields["slot_id"] != slot:
+        return
+    hold_index = next((index for index in range(len(chat) - 1, -1, -1)
+                       if chat[index].sender == city.agent_id and chat[index].recipient == LEDGER
+                       and first_word(chat[index].text) == "hold"
+                       and fields_of(chat[index].text).get("slot_id") == slot), None)
+    target = next((row.sender for row in reversed(chat[:hold_index])
+                   if row.sender.startswith("agent:") and row.recipient == city.agent_id
+                   and "confirm" in words(row.text) and fields_of(row.text).get("slot_id") == slot), "") if hold_index is not None else ""
     if not target:
         return
     token = f"booking_id={booking_id}"
@@ -1398,17 +1485,27 @@ async def _on_checkin(city: City, message: Message, chat: list[Message], *, repo
 async def _on_checked_in(
     city: City, message: Message, chat: list[Message], *, reports: bool
 ) -> None:
-    booking_id = fields_of(message.text).get("booking_id", "")
-    citizen = _citizen(chat)
+    data = fields_of(message.text)
+    booking_id = data.get("booking_id", "")
+    request = next((fields_of(row.text) for row in reversed(chat)
+                    if row.sender == city.agent_id and row.recipient == LEDGER
+                    and first_word(row.text) == "checkin"
+                    and fields_of(row.text).get("booking_id") == booking_id), None)
+    citizen = request.get("citizen", "") if request else ""
     if not booking_id:
         return
     token = f"booking_id={booking_id}"
     if reports and not _we(chat, city.agent_id, token, to=LEDGER, word="report"):
         await _say(city, LEDGER, f"report booking_id={booking_id} outcome_code=VISIT")
     if citizen and not _we(chat, city.agent_id, token, to=citizen, word="checkin"):
+        incoming = next((fields_of(row.text) for row in reversed(chat)
+                         if row.sender == citizen and "checkin" in words(row.text)
+                         and fields_of(row.text).get("booking_id") == booking_id), {})
+        ledger_ref = data.get("ledger_ref") or incoming.get("ledger_ref", "")
         await _say(
             city, citizen,
-            f"checkin booking_id={booking_id}" + (_CHECKIN_EN if _en(chat) else _CHECKIN_IT),
+            f"checkin booking_id={booking_id}" + (f" ledger_ref={ledger_ref}" if ledger_ref else "")
+            + (_CHECKIN_EN if _en(chat) else _CHECKIN_IT),
         )
     if not reports:
         return

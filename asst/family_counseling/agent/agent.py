@@ -386,11 +386,8 @@ async def main(need: Need, city: City) -> None:
     if text == "__error__" or need.summary == "__error__":
         raise RuntimeError("application")
 
-    if message.sender != LEDGER and clinical(text):
-        raise OutOfScope()
-
     # Red-flag emergency bypasses all queues and stops immediately after escalation.
-    if message.sender.startswith("citizen:") and _is_emergency(need, message):
+    if message.sender.startswith("citizen:") and (_is_emergency(need, message) or _family_emergency(message)):
         case = await city.history(need_id=message.need_id)
         if not _we(
             case,
@@ -411,6 +408,9 @@ async def main(need: Need, city: City) -> None:
             )
             await _say(city, message.sender, msg, allowed_citizen=message.sender)
         return
+
+    if message.sender != LEDGER and clinical(text):
+        raise OutOfScope()
 
     if message.sender.startswith("agent:"):
         if not await _is_trusted_agent(city, message.sender):
@@ -608,6 +608,18 @@ def _empathy_lead(*, english: bool, anxious: bool) -> str:
         if english
         else "Capisco la sua preoccupazione, siamo qui per aiutarla nella massima riservatezza. "
     )
+
+
+def _family_emergency(message: Message) -> bool:
+    """Escalate explicit emergency signals before looking for counseling slots."""
+    if understood(message).body.get("is_emergency") is True:
+        return True
+    text = message.text.lower()
+    for match in re.finditer(r"dolore\s+(?:al|nel)\s+(?:petto|torace)|chest pain|non sento le gambe|perdita di forza alle gambe", text):
+        prefix = text[max(0, match.start() - 24):match.start()]
+        if not re.search(r"\b(?:non\s+(?:ho|sento|avverto)|senza|nessun[ao]?|no|without)\s+(?:un\s+|forte\s+)?$", prefix):
+            return True
+    return False
 
 
 def _asks_address(message: Message) -> bool:

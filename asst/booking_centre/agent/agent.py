@@ -703,17 +703,10 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         seen = frozenset()
     answered = lambda h: facility_reply(h, facility, seen) is not None
     if not await send(city, facility, text):
-<<<<<<< HEAD
         # A 4xx is final: never resend it. Say so and offer what is still reachable.
         await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable "
                    "La struttura non è raggiungibile: cerco un'alternativa. / The facility is unreachable: I am looking for an alternative.")
         await rebook(city, need_id, citizen, frozenset({selected["slot_id"], facility}))
-=======
-        await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable La struttura non è raggiungibile. Cercherò un'alternativa.")
-        if selected.get("prescription_number"):
-            history = await city.history(need_id=need_id)
-            await search(city, need_id, history, citizen, selected["prescription_number"])
->>>>>>> ed99a6d (improvements further here)
         return
     history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
     if not answered(history) and facility in TEAM_AGENTS:

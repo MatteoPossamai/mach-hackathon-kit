@@ -425,9 +425,6 @@ async def main(need: Need, city: City) -> None:
     if text == "__error__" or need.summary == "__error__":
         raise RuntimeError("application")
 
-    if message.sender != LEDGER and clinical(text):
-        raise OutOfScope()
-
     # Red-flag emergency bypasses all queues and stops immediately after escalation.
     if message.sender.startswith("citizen:") and _is_emergency(need, message):
         case = await city.history(need_id=message.need_id)
@@ -450,6 +447,9 @@ async def main(need: Need, city: City) -> None:
             )
             await _say(city, message.sender, msg, allowed_citizen=message.sender)
         return
+
+    if message.sender.startswith("citizen:") and clinical(text):
+        raise OutOfScope()
 
     # Level 8 impostor defense: ignore untrusted agent:* senders not listed on the Index.
     if message.sender.startswith("agent:"):
