@@ -496,6 +496,20 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         if not _we(chat, agent, "escalate.emergency", to=message.sender, word="escalate.emergency"):
             await _say(city, message.sender, "escalate.emergency reason=red_flag")
         return
+    ours = _our_rx(chat, agent)
+    if ours.get("prescription_number"):
+        # Already prescribed on this need: never prescribe twice, never leave the citizen
+        # unanswered. Repeat the prescription tokens with a short reminder.
+        procedure = ours.get("procedure", "")
+        priority = ours.get("priority", "")
+        await _say(
+            city,
+            message.sender,
+            f"prescription prescription_number={ours['prescription_number']} "
+            f"procedure={procedure} priority={priority} "
+            + _rx_note(procedure, priority, english=_english(message.text), text=message.text, reminder=True),
+        )
+        return
     code = _symptom(message)
     if code is None:
         code = await _symptom_llm(city, message.text)
@@ -530,7 +544,7 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         city,
         message.sender,
         f"prescription {token} procedure={procedure} priority={priority} "
-        + _rx_note(procedure, priority, english=_english(message.text)),
+        + _rx_note(procedure, priority, english=_english(message.text), text=message.text),
     )
 
 
@@ -538,18 +552,28 @@ def _english(text: str) -> bool:
     return len(words(text) & _ENGLISH) >= 2
 
 
-def _rx_note(procedure: str, priority: str, *, english: bool) -> str:
+_WORRIED = ("ansia", "ansios", "preoccup", "paura", "spaventat", "worried", "anxious", "scared", "afraid")
+
+
+def _rx_note(
+    procedure: str, priority: str, *, english: bool, text: str = "", reminder: bool = False
+) -> str:
     """One polite line after the tokens. Citizens read the tokens; this is for the person."""
 
     index = 1 if english else 0
     label = _PROCEDURE_LABEL.get(procedure, (procedure, procedure))[index]
     when = _PRIORITY_LABEL.get(priority, (priority, priority))[index]
+    worried = any(word in text.lower() for word in _WORRIED)
     if english:
-        note = f"- Your prescription is ready: {label}, {when}. Use this number to book at the booking centre."
+        lead = "I understand your concern. " if worried else ""
+        state = "is still valid" if reminder else "is ready"
+        note = f"- {lead}Your prescription {state}: {label}, {when}. Use this number to book at the booking centre."
         if procedure == "VIS-FIS":
             note += " The hospital has wheelchair access."
         return note
-    note = f"- La ricetta è pronta: {label}, {when}. Con questo numero può prenotare al centro prenotazioni."
+    lead = "Capisco la sua preoccupazione. " if worried else ""
+    state = "è già pronta ed è valida" if reminder else "è pronta"
+    note = f"- {lead}La ricetta {state}: {label}, {when}. Con questo numero può prenotare al centro prenotazioni."
     if procedure == "VIS-FIS":
         note += " L'ospedale è accessibile in carrozzina."
     return note
