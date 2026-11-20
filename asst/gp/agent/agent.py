@@ -573,7 +573,39 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         city,
         message.sender,
         f"prescription {token} procedure={procedure} priority={priority} "
-        + _rx_note(procedure, priority, english=_english(message.text), text=message.text),
+        + _rx_note(procedure, priority, english=_english(message.text), text=message.text)
+        + (_HANDOFF_EN if _english(message.text) else _HANDOFF_IT),
+    )
+    await _handoff(city, message.sender, number, procedure, priority)
+
+
+# Our ASST's booking centre. The GP writes to it only when the Index returns it (impostors
+# and invented ids are never contacted).
+_OUR_BOOKING = "agent:gdrf9b9kxxss"
+_HANDOFF_IT = (
+    " Inoltro subito la ricetta al nostro centro prenotazioni, così la sua prenotazione è più rapida."
+    " Tenga a portata di mano la tessera sanitaria e questo numero di ricetta."
+)
+_HANDOFF_EN = (
+    " I am forwarding the prescription to our booking centre right away, so booking is faster."
+    " Keep your health card and this prescription number at hand."
+)
+
+
+async def _handoff(city: City, citizen: str, number: str, procedure: str, priority: str) -> None:
+    """Proactive referral to our booking centre after the citizen already has the prescription."""
+
+    try:
+        peers = await asyncio.wait_for(city.find("booking_centre"), 5.0)
+    except (CapError, asyncio.TimeoutError):
+        return
+    if not any(peer.agent_id == _OUR_BOOKING for peer in peers):
+        return
+    await _say(
+        city,
+        _OUR_BOOKING,
+        f"referral prescription_number={number} procedure={procedure} priority={priority} "
+        f"citizen={citizen} Ricetta emessa dal medico di base: il cittadino vi contatterà per prenotare.",
     )
 
 
