@@ -233,3 +233,15 @@ class Mach1Test(unittest.TestCase):
         rows = [msg('agent:team/booking', 'confirm offer_id=O7 slot_id=S7 citizen=citizen:1', mid='c7')]
         rows[0] = Message(type='chat', sender='agent:team/booking', recipient='agent:team/hospital', msg_id='c7', need_id='N-1', body={'text': rows[0].text})
         self.assertEqual(hospital._receipt_ids(rows, 'agent:team/hospital', 'S7'), ' offer_id=O7 slot_id=S7')
+
+
+class RepeatHoldTest(unittest.TestCase):
+    def test_refused_second_hold_does_not_cancel_a_standing_hold(self):
+        rows = [msg('agent:team/booking', 'confirm offer_id=O1 slot_id=S1 citizen=citizen:1 consent_ref=C1', mid='c'),
+                Message(type='chat', sender='agent:team/hospital', recipient=hospital.LEDGER, msg_id='h1', need_id='N-1', body={'text': 'hold slot_id=S1 citizen=citizen:1'}),
+                msg(hospital.LEDGER, 'held hold_id=H1 slot_id=S1', mid='held'),
+                Message(type='chat', sender='agent:team/hospital', recipient=hospital.LEDGER, msg_id='h2', need_id='N-1', body={'text': 'hold slot_id=S1 citizen=citizen:1'}),
+                msg(hospital.LEDGER, 'refused hold code=SLOT_NOT_FREE', mid='ref')]
+        city = City(rows)
+        asyncio.run(hospital._on_refused(city, rows[-1], rows, hold_self=False))
+        self.assertFalse(any(text.startswith('cancel') for _, text in city.out))

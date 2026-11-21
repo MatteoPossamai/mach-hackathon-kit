@@ -1480,7 +1480,10 @@ async def _on_refused(
         and offer_id
         and not _we(chat, agent, f"offer_id={offer_id}", to=target, word="cancel")
     ):
-        reason = "rule_p2_no_consent" if "CONSENT" in (message.text or "") else "hold_refused"
+        code = (message.text or "").upper()
+        reason = ("consent_missing" if "CONSENT" in code
+                  else "slot_taken" if any(word in code for word in ("TAKEN", "CONFLICT", "NOT_FREE", "ALREADY", "FULL"))
+                  else "hold_refused")
         await _say(city, target, f"cancel offer_id={offer_id} slot_id={slot} reason={reason}")
     if hold_self:
         await _advance(city, message, chat, fixed="CONS-GIN", replacing=True)
@@ -1761,3 +1764,25 @@ def _receipt_ids(chat: list[Message], agent: str, slot: str) -> str:
         if row.recipient == agent and fields_of(row.text).get("slot_id") == slot:
             offer_id = fields_of(row.text).get("offer_id", offer_id)
     return (f" offer_id={offer_id}" if offer_id else "") + (f" slot_id={slot}" if slot else "")
+
+
+# --- a refused repeat never cancels a hold that already stands ----------------------------
+# A confirm resent after a redeploy makes a second hold; the Ledger refuses it while the
+# first hold commits. Cancelling then (journey 148) told the citizen "cancelled" and sent
+# the receipt two seconds later, and the citizen booked a second slot.
+
+_on_refused_core = _on_refused
+
+
+async def _on_refused(city: City, message: Message, chat: list[Message], *, hold_self: bool) -> None:
+    slot = ""
+    for row in chat:
+        if row.sender == city.agent_id and row.recipient == LEDGER and "hold" in words(row.text):
+            slot = fields_of(row.text).get("slot_id", slot)
+    refused_hold = "hold" in words(message.text) and "commit" not in words(message.text)
+    committed = any(row.sender == LEDGER and first_word(row.text) == "committed" for row in chat)
+    held = any(row.sender == LEDGER and first_word(row.text) == "held"
+               and fields_of(row.text).get("slot_id") == slot for row in chat)
+    if slot and (committed or (refused_hold and held)):
+        return
+    await _on_refused_core(city, message, chat, hold_self=hold_self)

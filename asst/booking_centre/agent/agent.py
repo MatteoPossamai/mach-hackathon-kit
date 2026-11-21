@@ -52,6 +52,12 @@ async def main(need: Need, city: City) -> None:
     lock = LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
         try:
+            if incoming.sender.startswith("citizen:") and "cancel" in incoming.text.replace(",", " ").split():
+                rows = await city.history(need_id=incoming.need_id)
+                index = next((i for i, row in enumerate(rows) if row.msg_id == incoming.msg_id), None)
+                if index is not None and any(row.sender == incoming.sender and "cancel" in row.text.replace(",", " ").split()
+                                             for row in rows[index + 1:]):
+                    return
             await handle(city, incoming)
         finally:
             # Keep locks while waiting turns exist; removing them here could create two locks.
@@ -136,6 +142,10 @@ async def handle(city: City, message) -> None:
     data = fields(message.text)
     kind = understood(message).type
     if message.sender == citizen:
+        if kind == "confirm" and sent(history, city.agent_id, citizen, "booking.receipt "):
+            # Already booked: repeat the booking, never hold a second slot for the same need.
+            await follow_up(city, message.need_id, history, citizen)
+            return
         if kind == "confirm":
             selected = offers(history, city.agent_id, citizen).get(data.get("offer_id", ""))
             if selected and selected.get("waiting_list") == "true":

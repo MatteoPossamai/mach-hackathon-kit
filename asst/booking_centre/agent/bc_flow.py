@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time as _clock
 from datetime import datetime, timedelta
 
 from city_sdk.city import LEDGER, CapError, City, Need, clinical, OutOfScope, understood
@@ -108,6 +109,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
              if item.get("slot_id") not in exclude and item.get("facility") not in exclude
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
+    candidates = spread(candidates, need_id)
     if not candidates:
         await find_partners(city, need_id, citizen, procedure, priority, history)
         return
@@ -117,7 +119,8 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     # Keep a single message: the citizen chooses within the turn of this one message.
     lines = pick_offers(candidates, number, priority, 1950 - len(note))
     if lines:
-        await send(city, citizen, "\n".join(lines) + "\n" + note)
+        if await send(city, citizen, "\n".join(lines) + "\n" + note):
+            mark(OFFERED, lines, need_id)
 
 
 async def ask_number(city: City, citizen: str, english: bool) -> None:
@@ -303,6 +306,10 @@ async def relay_facility_reply(city: City, need_id: str, history: list, citizen:
             return False
         offer = offers(history, city.agent_id, citizen).get((confirmation or {}).get("offer_id", ""), {})
         note = receipt_note(offer, writes_english(history, citizen))
+        if confirmation and sent(history, city.agent_id, citizen, f"cancel offer_id={confirmation.get('offer_id', '')}"):
+            note = ("Good news: the facility did book it in the end, this booking is valid and you can ignore later proposals. "
+                    if writes_english(history, citizen) else
+                    "Buone notizie: la struttura alla fine ha registrato la prenotazione, è valida e le proposte successive non servono. ") + note
         if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']} {note}"):
             RELAYED.add(key)
             if row.sender in ACK_FACILITIES:
@@ -354,6 +361,7 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
     except CapError:
         seen = frozenset()
     answered = lambda h: facility_reply(h, facility, seen) is not None
+    CLAIMED[selected["slot_id"]] = (need_id, _clock.monotonic())
     if not await send(city, facility, text):
         # A 4xx is final: never resend it. Say so and offer what is still reachable.
         await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable "
@@ -407,3 +415,31 @@ def before_cutoff(item: dict, cutoff: datetime | None) -> bool:
         return True
     at = time(item.get("at", item.get("agenda_date", "")))
     return bool(at) and at < cutoff
+
+
+# --- many citizens at once: do not hand the same slot to everybody -------------------------
+# One booking centre process serves every case, so a small in-memory registry is enough.
+
+CLAIM_SECONDS = 600.0   # a confirm in flight (real seconds)
+OFFER_SECONDS = 300.0   # an offer still open with another citizen
+CLAIMED: dict[str, tuple[str, float]] = {}
+OFFERED: dict[str, tuple[str, float]] = {}
+
+
+def _held_by_other(registry: dict, slot: str, need_id: str, ttl: float) -> bool:
+    entry = registry.get(slot)
+    return bool(entry) and entry[0] != need_id and _clock.monotonic() - entry[1] < ttl
+
+
+def spread(candidates: list, need_id: str) -> list:
+    """Drop slots another case is confirming; offer slots nobody else holds first."""
+    free = [c for c in candidates if not _held_by_other(CLAIMED, c.get("slot_id", ""), need_id, CLAIM_SECONDS)]
+    return sorted(free, key=lambda c: _held_by_other(OFFERED, c.get("slot_id", ""), need_id, OFFER_SECONDS))
+
+
+def mark(registry: dict, lines: list, need_id: str) -> None:
+    now = _clock.monotonic()
+    for line in lines:
+        slot = fields(line).get("slot_id")
+        if slot:
+            registry[slot] = (need_id, now)

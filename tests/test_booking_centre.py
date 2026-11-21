@@ -565,3 +565,26 @@ class NoticeTest(unittest.TestCase):
         city.inbound = rows[-1]
         asyncio.run(booking.main(SimpleNamespace(is_emergency=False), city))
         self.assertEqual(city.out, [])
+
+
+class ConcurrencyTest(unittest.TestCase):
+    def setUp(self):
+        booking.bc_flow.CLAIMED.clear(); booking.bc_flow.OFFERED.clear()
+
+    def test_slot_confirmed_elsewhere_is_dropped_and_offered_elsewhere_goes_last(self):
+        flow = booking.bc_flow
+        flow.CLAIMED['S1'] = ('other-need', flow._clock.monotonic())
+        flow.OFFERED['S2'] = ('other-need', flow._clock.monotonic())
+        out = flow.spread([{'slot_id': 'S1'}, {'slot_id': 'S2'}, {'slot_id': 'S3'}], 'my-need')
+        self.assertEqual([c['slot_id'] for c in out], ['S3', 'S2'])
+        self.assertEqual(len(flow.spread([{'slot_id': 'S1'}], 'other-need')), 1)
+
+    def test_no_second_booking_after_a_receipt(self):
+        me = 'agent:team/booking'
+        rows = [msg('citizen:1', 'need.request prescription_number=prescription_number-N-1', me, mid='a'),
+                msg(me, 'offer offer_id=o1 slot_id=S1\\noffer offer_id=o2 slot_id=S2', 'citizen:1', mid='o'),
+                msg(me, 'booking.receipt booking_id=B1 ledger_ref=L1', 'citizen:1', mid='r'),
+                msg('citizen:1', 'confirm offer_id=o2 consent_ref=C2', me, mid='c2')]
+        city = FakeCity(rows); city.inbound = rows[-1]
+        asyncio.run(booking.handle(city, rows[-1]))
+        self.assertFalse(any(text.startswith('confirm') or text.startswith('consent') for _, text in city.out))
