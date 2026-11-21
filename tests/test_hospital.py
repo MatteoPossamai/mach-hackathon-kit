@@ -81,6 +81,14 @@ class HospitalTest(unittest.TestCase):
         incoming = confirm(); city = City([incoming, slots('agent:other/hospital')])
         self.run_confirm(city, incoming)
         self.assertFalse(any(text.startswith('hold ') for _, text in city.out))
+    def test_silent_world_read_still_holds_instead_of_cancelling(self):
+        """09:32 CET: every confirm came back 'facility_cancelled' because the world page timed out.
+        A world read that never answered is not 'slot unavailable': the Ledger hold decides."""
+        incoming = confirm(); city = City([incoming])
+        self.run_confirm(city, incoming)
+        self.assertFalse(any('reason=slot_unavailable' in text for _, text in city.out), city.out)
+        self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
+        self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out))
     def test_unsolicited_committed_does_not_create_receipt(self):
         incoming = msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1')
         city = City([msg('citizen:1', 'hello'), incoming])

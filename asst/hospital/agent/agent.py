@@ -1035,9 +1035,15 @@ async def _on_confirm(
                 return
             if not await _trusted_booking_centre(city, message.sender):
                 return
-            chat = await _hospital_slot_history(city, message, chat, slot)
-            if not any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent
-                       for line in _all_slot_lines(chat)):
+            chat, complete = await _hospital_slot_history(city, message, chat, slot)
+            listed = any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent
+                         for line in _all_slot_lines(chat))
+            listed_elsewhere = any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") not in (None, agent)
+                                   for line in _all_slot_lines(chat))
+            # Cancel only on proof: the whole world read without our slot, or the slot listed for
+            # another facility. A silent Ledger used to cancel every confirm (09:32 CET, -1 each);
+            # the Ledger hold below refuses a slot that is really gone, and that refusal is relayed.
+            if not listed and (complete or listed_elsewhere):
                 await _say(city, message.sender, f"cancel offer_id={offer_id} reason=slot_unavailable")
                 return
         if not _we(chat, agent, f"slot_id={slot}", to=LEDGER, word="hold"):
@@ -1159,26 +1165,32 @@ def _all_slot_lines(chat: list[Message]) -> list[str]:
     return lines
 
 
-async def _hospital_slot_history(city: City, message: Message, chat: list[Message], slot: str) -> list[Message]:
-    """Read our facility's slots from the Ledger, not from the requesting agent."""
+async def _hospital_slot_history(city: City, message: Message, chat: list[Message], slot: str
+                                 ) -> tuple[list[Message], bool]:
+    """Read our facility's slots from the Ledger, not from the requesting agent.
+
+    Returns the case history and whether the whole world was read. A page that never came
+    back (slow Ledger) or a world longer than _MAX_PAGE is not proof the slot is gone."""
     def found(rows: list[Message]) -> bool:
         return any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == city.agent_id
                    for line in _all_slot_lines(rows))
     if found(chat):
-        return chat
+        return chat, True
     for page in range(1, _MAX_PAGE + 1):
         if not await _say(city, LEDGER, f"world procedure=VIS-FIS page={page}"):
-            break
+            return chat, False
         chat = await _until(city, message.need_id, chat, lambda rows: found(rows) or any(
             row.sender == LEDGER and first_word(row.text) == "slots" and _page(row.text)[0] == page
             for row in rows))
         if found(chat):
-            break
+            return chat, True
         result = next((row for row in reversed(chat) if row.sender == LEDGER
                        and first_word(row.text) == "slots" and _page(row.text)[0] == page), None)
-        if result is None or page >= _page(result.text)[1]:
-            break
-    return chat
+        if result is None:
+            return chat, False
+        if page >= _page(result.text)[1]:
+            return chat, True
+    return chat, False
 
 
 async def _partner_request(city: City, message: Message, chat: list[Message]) -> None:
