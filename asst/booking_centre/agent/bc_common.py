@@ -319,3 +319,29 @@ def agenda_clock(row):
     if elapsed <= 0 or elapsed > 6 * 3600:
         return now
     return now + _td(seconds=elapsed * AGENDA_RATE)
+
+
+# (need_id, purpose) -> monotonic time of the consent request sent by this pod.
+_CONSENT_ASKED: dict[tuple[str, str], float] = {}
+
+
+async def ask_consent_once(city: City, need_id: str, history: list, citizen: str, purpose: str, text: str) -> bool:
+    """Ask the citizen for one consent purpose at most once per case.
+
+    Journey 374: several partner replies opened parallel turns on different pods; each read a
+    history without the request just sent and asked again (6 times), and the citizen answered
+    "Which consent_ref?". Guard per pod, then re-read the history right before sending."""
+    import time as _t
+    key = (need_id, purpose)
+    if key in _CONSENT_ASKED or asked_consent(history, city.agent_id, citizen, purpose):
+        return False
+    try:
+        fresh = await city.history(need_id=need_id)
+    except Exception:  # noqa: BLE001 - a busy relay must not cost the citizen the question
+        fresh = history
+    if asked_consent(fresh, city.agent_id, citizen, purpose) or key in _CONSENT_ASKED:
+        return False
+    if len(_CONSENT_ASKED) > 5000:
+        _CONSENT_ASKED.clear()
+    _CONSENT_ASKED[key] = _t.monotonic()
+    return await send(city, citizen, text)

@@ -21,6 +21,7 @@ from city_sdk.city import LEDGER, CapError, City, Message, Need, OutOfScope, cli
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gp_prescriptions import confirmation, fields_of, latest_confirmation, wait_for_result
+import gp_ack
 
 ROLES = ("booking_centre", "gp", "hospital", "specialist_care", "family_counseling")
 _MAX_PAGE = 8
@@ -185,6 +186,10 @@ async def main(need: Need, city: City) -> None:
     if message.sender.startswith("citizen:") and clinical(text):
         raise OutOfScope()
     case = await city.history(need_id=message.need_id)
+    if message.sender.startswith("citizen:") and gp_ack.first_contact(case, city.agent_id, message.sender):
+        note = gp_ack.ACK_EN if _english(text) else gp_ack.ACK_IT
+        await gp_ack.with_delayed_ack(city, message, handle(role_of(), city, message, case), _say, note)
+        return
     await handle(role_of(), city, message, case)
 
 

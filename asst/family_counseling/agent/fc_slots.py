@@ -48,6 +48,14 @@ def is_soft_locked(slot_id: str, request_id: str = "") -> bool:
     return bool(holder and holder != request_id)
 
 
+def priority_deadline(start: datetime, priority: str) -> datetime | None:
+    """B/D deadline in calendar days, like the judge and the kit reference (now + timedelta(days=N)).
+
+    Skipping the weekend let a Friday B reach Tuesday: the citizen refused with reason=deadline."""
+    days = DEADLINE_DAYS.get((priority or "").upper())
+    return start + timedelta(days=days) if days else None
+
+
 def add_agenda_days(start: datetime, agenda_days: int) -> datetime:
     """Advance ``start`` by ``agenda_days`` weekdays (Mon-Fri; Sat/Sun do not exist in agenda)."""
     cur = start
@@ -182,7 +190,7 @@ def fitting_slots(
     elif prio == "P":
         today_end, fallback_horizon, earliest = None, None, now + LEAD
     else:
-        today_end = add_agenda_days(now, DEADLINE_DAYS.get(prio or "", 10))
+        today_end = priority_deadline(now, prio or "") or add_agenda_days(now, 10)
         fallback_horizon, earliest = None, now + LEAD
 
     if after and after > earliest:

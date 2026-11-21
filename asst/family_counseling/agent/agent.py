@@ -21,6 +21,7 @@ from city_sdk.city import LEDGER, City, Message, Need, OutOfScope, clinical, und
 import fc_booking as bk
 import fc_common as c
 import fc_ring as ring
+import fc_ack
 
 # Exported for existing unit tests (tests/test_family_emergency.py).
 _family_emergency = c.family_emergency
@@ -192,7 +193,14 @@ async def main(need: Need, city: City) -> None:
                     case, city.agent_id, "escalate.emergency", to=message.sender, word="escalate.emergency"
                 ):
                     return
-                await _dispatch(city, message, case, key, urgent=urgent)
+                work = _dispatch(city, message, case, key, urgent=urgent)
+                if message.sender.startswith("citizen:") and fc_ack.first_contact(case, city.agent_id, message.sender):
+                    note = fc_ack.ACK_EN if c.is_english(case, text) else fc_ack.ACK_IT
+                    await fc_ack.with_delayed_ack(
+                        city, message, work,
+                        lambda cy, to, t: c.say(cy, to, t, allowed_citizen=message.sender), note)
+                else:
+                    await work
         finally:
             gate.turns -= 1
             if gate.turns == 0 and _GATES.get(key) is gate:

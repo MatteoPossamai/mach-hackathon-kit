@@ -357,7 +357,7 @@ async def handle(city: City, message) -> None:
         elif requested and not asked_consent(history, city.agent_id, citizen, "cross_asst"):
             prefs = await citizen_preferences(city, history, citizen)
             if matching_partner_offers(history, city.agent_id, citizen, prefs):
-                await send(city, citizen, "consent purpose=cross_asst " + (
+                await ask_consent_once(city, message.need_id, history, citizen, "cross_asst", "consent purpose=cross_asst " + (
                     "I found a possible slot at a partner facility of another ASST. May I share the data needed to check it and book it?"
                     if writes_english(history, citizen) else
                     "Ho trovato una possibile disponibilità in una struttura partner di un'altra ASST. Posso condividere i dati necessari per verificarla e prenotare?"))

@@ -649,6 +649,27 @@ class RingFixTest(unittest.TestCase):
         self.assertTrue(booking.bc_flow.before_cutoff({'at': '2026-11-16T12:00:00+00:00'}, cutoff))
         self.assertFalse(booking.bc_flow.before_cutoff({'at': '2026-11-18T10:30:00+00:00'}, cutoff))
 
+    def test_cross_asst_consent_is_asked_once_across_parallel_turns(self):
+        """Journey 374: six partner replies, six turns on different pods, six identical consent
+        requests; the citizen answered 'Which consent_ref?' and the case timed out (S_eff=130)."""
+        me = 'agent:team/booking'
+        stale = [msg('citizen:1', 'need.request prescription_number=rx1', me, mid='a')]
+        fresh = stale + [msg(me, 'consent purpose=cross_asst Posso condividere?', 'citizen:1', mid='b')]
+        class Fresh(FakeCity):
+            async def history(self, need_id=None):
+                return list(fresh)
+        city = Fresh([])
+        sent = asyncio.run(booking.bc_common.ask_consent_once(city, 'case-1', stale, 'citizen:1', 'cross_asst',
+                                                              'consent purpose=cross_asst Posso condividere?'))
+        self.assertFalse(sent)
+        self.assertEqual([t for to, t in city.out if to == 'citizen:1'], [])
+        city = Fresh([]); fresh = list(stale)
+        self.assertTrue(asyncio.run(booking.bc_common.ask_consent_once(city, 'case-2', stale, 'citizen:1', 'cross_asst',
+                                                                       'consent purpose=cross_asst Posso?')))
+        self.assertFalse(asyncio.run(booking.bc_common.ask_consent_once(city, 'case-2', stale, 'citizen:1', 'cross_asst',
+                                                                        'consent purpose=cross_asst Posso?')))
+        self.assertEqual(len([t for to, t in city.out if to == 'citizen:1']), 1)
+
     def test_past_day_and_gender_refusals_narrow_the_next_offers(self):
         """Journey 3450004: 'past' was read as a deadline, so every later slot was dropped.
         past = only slots after it; day = not that weekday; gender = not that doctor's gender."""

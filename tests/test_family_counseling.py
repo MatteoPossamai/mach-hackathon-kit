@@ -109,6 +109,31 @@ class FamilyCounselingTest(unittest.TestCase):
         fc_ring.reset_trust_cache()
         fc_booking.reset_caches()
 
+    def test_priority_deadline_is_calendar_days_like_the_judge(self):
+        """Same bug as the booking centre (14 journeys reason=deadline): B on Friday ends Sunday."""
+        fri = datetime(2026, 11, 20, 10, 0, tzinfo=UTC)
+        self.assertEqual(fc_slots.priority_deadline(fri, "B"), datetime(2026, 11, 22, 10, 0, tzinfo=UTC))
+        self.assertEqual(fc_slots.priority_deadline(fri, "D"), datetime(2026, 11, 25, 10, 0, tzinfo=UTC))
+        self.assertIsNone(fc_slots.priority_deadline(fri, "P"))
+
+    def test_slow_first_turn_sends_a_warm_note(self):
+        """Journey 394: 4+ minutes of silence for 'Voglio prenotare visita per consultorio'."""
+        import fc_ack
+        fc_ack.ACK_DELAY = 0.05
+        original = fc._dispatch
+        try:
+            async def slow(*args, **kwargs):
+                await asyncio.sleep(0.2)
+            fc._dispatch = slow
+            inbound = Message(type="chat", sender="citizen:c-9", msg_id="m9", need_id="N-FC-9",
+                              body={"text": "Ciao! Voglio prenotare visita per consultorio."})
+            city = FakeCity(inbound)
+            asyncio.run(fc.main(Need(), city))
+            self.assertEqual([t for to, t in city.out if to == "citizen:c-9"], [fc_ack.ACK_IT])
+        finally:
+            fc._dispatch = original
+            fc_ack.ACK_DELAY = 8.0
+
     def test_agenda_weekdays_skip_weekend(self):
         # Friday 2026-11-20 + 2 agenda days -> Tuesday 2026-11-24
         fri = datetime(2026, 11, 20, 10, 0, tzinfo=UTC)

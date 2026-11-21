@@ -101,6 +101,23 @@ class GPTest(unittest.TestCase):
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
 
+    def test_slow_first_turn_sends_a_warm_note_and_fast_turn_does_not(self):
+        """Journeys 373/395: 2-5 minutes of silence while the Ledger was slow."""
+        gp.gp_ack.ACK_DELAY = 0.05
+        try:
+            async def slow(*args, **kwargs):
+                await asyncio.sleep(0.2)
+            c = City(msg('citizen:1', 'Ho mal di schiena da settimane'))
+            with patch.object(gp, 'handle', slow):
+                self.run_gp(c)
+            notes = [text for to, text in c.out if to == 'citizen:1']
+            self.assertEqual(notes, [gp.gp_ack.ACK_IT])
+            fast = City(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='success')
+            self.run_gp(fast)
+            self.assertNotIn(gp.gp_ack.ACK_IT, [text for _, text in fast.out])
+        finally:
+            gp.gp_ack.ACK_DELAY = 8.0
+
     def test_late_refused_after_a_sent_prescription_is_ignored(self):
         """Journeys 313/3450004: a retried prescribe came back 'refused' after the citizen already had
         the prescription, and the GP wrote 'Il registro non ha confermato la ricetta' (twice)."""

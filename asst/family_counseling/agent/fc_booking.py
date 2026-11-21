@@ -147,7 +147,7 @@ async def offer_to_citizen(
         return
 
     if not cache:
-        deadline = s.add_agenda_days(now, s.DEADLINE_DAYS[priority]) if priority in s.DEADLINE_DAYS else None
+        deadline = s.priority_deadline(now, priority) if priority in s.DEADLINE_DAYS else None
         contacted = await ring.find_partner_counseling(
             city, message.need_id, chat, priority=priority or "B",
             lang=lang, gender=gender, days=days, deadline=deadline,
