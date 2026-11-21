@@ -101,6 +101,45 @@ class GPTest(unittest.TestCase):
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
 
+    def test_busy_relay_on_history_does_not_kill_the_turn(self):
+        """Journey 2840007: the citizen wrote again at 12:02 and had no answer at 12:07."""
+        from city_sdk.city import CapError
+        class Busy(City):
+            busy = 1
+            async def history(self, **kwargs):
+                if self.busy:
+                    self.busy -= 1
+                    raise CapError('RATE_LIMITED', 'relay')
+                return await super().history(**kwargs)
+        saved = gp.gp_ack.HISTORY_RETRY
+        gp.gp_ack.HISTORY_RETRY = (0.01, 0.01)
+        try:
+            c = Busy(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='success')
+            self.run_gp(c)
+        finally:
+            gp.gp_ack.HISTORY_RETRY = saved
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in c.out), c.out)
+
+    def test_rate_limited_prescribe_is_retried_not_lost(self):
+        """19 journeys after 11:52 stuck on 'Sto aspettando la conferma del registro': a 429 on
+        prescribe was treated as final, so the prescription never reached the Ledger."""
+        from city_sdk.city import CapError
+        class Limited(City):
+            limited = 2
+            async def say(self, to, text):
+                if to == gp.LEDGER and text.startswith('prescribe ') and self.limited:
+                    self.limited -= 1
+                    raise CapError('RATE_LIMITED', 'relay')
+                await super().say(to, text)
+        saved = gp._RATE_PAUSES
+        gp._RATE_PAUSES = (0.01, 0.01, 0.01)
+        try:
+            c = Limited(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='success')
+            self.run_gp(c)
+        finally:
+            gp._RATE_PAUSES = saved
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in c.out), c.out)
+
     def test_slow_first_turn_sends_a_warm_note_and_fast_turn_does_not(self):
         """Journeys 373/395: 2-5 minutes of silence while the Ledger was slow."""
         gp.gp_ack.ACK_DELAY = 0.05

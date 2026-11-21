@@ -48,6 +48,8 @@ def confirm(sender='agent:team/booking'):
 
 
 class HospitalTest(unittest.TestCase):
+    def setUp(self):
+        hospital.SLOT_SEEN.clear()
     def run_confirm(self, city, incoming):
         with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
             asyncio.run(hospital._on_confirm(city, incoming, list(city.rows), hold_self=False))
@@ -89,6 +91,21 @@ class HospitalTest(unittest.TestCase):
         self.assertFalse(any('reason=slot_unavailable' in text for _, text in city.out), city.out)
         self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
         self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out))
+    def test_confirm_for_a_recently_seen_own_slot_holds_without_rereading_the_world(self):
+        """Journey 2920005: 12 minutes between the confirm and facility_cancelled, spent re-reading
+        up to 8 world pages from a slow Ledger. Our slots were read seconds before for the ring."""
+        hospital.SLOT_SEEN.clear()
+        hospital._remember_slots([slots()], 'agent:team/hospital')
+        incoming = confirm(); city = City([incoming])
+        self.run_confirm(city, incoming)
+        self.assertFalse(any(to == hospital.LEDGER and text.startswith('world ') for to, text in city.out), city.out)
+        self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
+        hospital.SLOT_SEEN.clear()
+        hospital._remember_slots([slots('agent:other/hospital')], 'agent:team/hospital')
+        incoming = confirm(); city = City([incoming])
+        self.run_confirm(city, incoming)
+        self.assertFalse(any(text.startswith('hold ') for _, text in city.out), city.out)
+        hospital.SLOT_SEEN.clear()
     def test_unsolicited_committed_does_not_create_receipt(self):
         incoming = msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1')
         city = City([msg('citizen:1', 'hello'), incoming])

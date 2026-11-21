@@ -174,6 +174,7 @@ async def main(need: Need, city: City) -> None:
     message = city.inbound
     if message is None:
         return
+    gp_ack.resilient_history(city)
     text = message.text or need.summary
     # Emergency routing must win over clinical-advice refusal: a citizen can
     # mention chest pain and ask for a diagnosis in the same message.
@@ -1590,28 +1591,37 @@ def _english(text: str) -> bool:
 
 _FAULT_RETRIES = 2
 _FAULT_PAUSE = 1.5
+_RATE_PAUSES = (2.0, 4.0, 8.0, 16.0)  # a 429 from the relay: back off, then send the same prescribe
 _say_fault_free = _say
 
 
 async def _say(city: City, to: str, text: str) -> bool:
     if to != LEDGER or not text.startswith("prescribe "):
         return await _say_fault_free(city, to, text)
-    for attempt in range(_FAULT_RETRIES + 1):
+    limited = 0
+    attempt = 0
+    while True:
         try:
             await city.say(to, text)
             return True
         except CapError as exc:
             try:
-                transient = exc.http_status() >= 500
+                status = exc.http_status()
             except CapError:
-                transient = False
-            if not transient or attempt == _FAULT_RETRIES:
+                status = 0
+            if status == 429 and limited < len(_RATE_PAUSES):
+                # A rate-limited prescribe used to be dropped: the citizen then waited on
+                # "Sto aspettando la conferma del registro" forever (19 journeys after 11:52).
+                await asyncio.sleep(_RATE_PAUSES[limited])
+                limited += 1
+                continue
+            if status < 500 or attempt == _FAULT_RETRIES:
                 return False
         except Exception:  # transport timeout or reset: transient, same message id is not reused
             if attempt == _FAULT_RETRIES:
                 return False
-        await asyncio.sleep(_FAULT_PAUSE * (attempt + 1))
-    return False
+        attempt += 1
+        await asyncio.sleep(_FAULT_PAUSE * attempt)
 
 
 _RX_BUDGET = 20.0  # real seconds a turn may spend waiting for the Ledger; the push does the rest

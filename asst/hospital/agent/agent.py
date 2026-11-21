@@ -1035,8 +1035,16 @@ async def _on_confirm(
                 return
             if not await _trusted_booking_centre(city, message.sender):
                 return
-            chat, complete = await _hospital_slot_history(city, message, chat, slot)
-            listed = any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent
+            seen = _seen_facility(slot)
+            if seen and seen != agent:
+                await _say(city, message.sender, f"cancel offer_id={offer_id} reason=slot_unavailable")
+                return
+            if seen == agent:
+                complete = False  # listed as ours seconds ago: hold now, the Ledger decides
+            else:
+                chat, complete = await _hospital_slot_history(city, message, chat, slot)
+                _remember_slots(chat, agent)
+            listed = seen == agent or any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") == agent
                          for line in _all_slot_lines(chat))
             listed_elsewhere = any(fields_of(line).get("slot_id") == slot and fields_of(line).get("facility") not in (None, agent)
                                    for line in _all_slot_lines(chat))
@@ -1157,6 +1165,32 @@ async def _facility(
         await _partner_request(city, message, chat)
 
 
+# slot_id -> (facility, monotonic time) for every world line this pod read, in any case. The ring
+# reads our world many times a minute; a confirm can reuse that instead of re-reading 8 pages
+# from a slow Ledger (journey 2920005: 12 minutes from confirm to facility_cancelled).
+SLOT_SEEN: dict[str, tuple[str, float]] = {}
+SLOT_SEEN_TTL = 120.0
+
+
+def _remember_slots(chat: list[Message], agent: str) -> None:
+    import time as _t
+    now = _t.monotonic()
+    if len(SLOT_SEEN) > 20000:
+        SLOT_SEEN.clear()
+    for line in _all_slot_lines(chat):
+        data = fields_of(line)
+        if data.get("slot_id") and data.get("facility"):
+            SLOT_SEEN[data["slot_id"]] = (data["facility"], now)
+
+
+def _seen_facility(slot: str) -> str:
+    import time as _t
+    entry = SLOT_SEEN.get(slot)
+    if entry and _t.monotonic() - entry[1] < SLOT_SEEN_TTL:
+        return entry[0]
+    return ""
+
+
 def _all_slot_lines(chat: list[Message]) -> list[str]:
     lines: list[str] = []
     for row in chat:
@@ -1254,6 +1288,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
                 and _page(row.text)[0] == p for row in rows
             ),
         )
+    _remember_slots(chat, agent)
     world_languages = {}
     for row in chat:
         if row.sender != LEDGER or first_word(row.text) != "slots":
