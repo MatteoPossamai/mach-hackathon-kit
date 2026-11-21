@@ -1598,6 +1598,8 @@ async def _say(city: City, to: str, text: str) -> bool:
 
 
 _RX_BUDGET = 20.0  # real seconds a turn may spend waiting for the Ledger; the push does the rest
+_RX_PATIENCE = 300.0  # then keep looking the prescription up for up to 5 minutes (the push can be lost)
+_RX_LATE_PAUSE = 5.0  # first pause of that slow loop; it doubles up to 30 s
 
 
 async def _bounded_wait(city, need_id, history, request, pauses, *, seen, deadline):
@@ -1637,6 +1639,18 @@ async def _finish_prescription(
         await _say(city, LEDGER, lookup)
         backoff = tuple(ticks * _PULL_PAUSE for ticks in (16, 20, 24))
         reply, fresh = await _bounded_wait(city, need_id, fresh, request, backoff, seen=seen, deadline=deadline)
+    # Under load the Ledger confirmed minutes later and the push never reopened the case: ten
+    # citizens stayed on "Sto aspettando" (journey open). Keep asking, gently, before giving up.
+    loop = asyncio.get_running_loop()
+    patience = loop.time() + _RX_PATIENCE
+    pause = _RX_LATE_PAUSE
+    while reply is None and not _escalated(fresh, city.agent_id) and loop.time() < patience:
+        await asyncio.sleep(pause)
+        pause = min(pause * 2, 30.0)
+        await _say(city, LEDGER, lookup)
+        late = min(patience, loop.time() + 20.0)
+        polls = tuple(ticks * _PULL_PAUSE for ticks in (0, 4, 8, 16))
+        reply, fresh = await _bounded_wait(city, need_id, fresh, request, polls, seen=seen, deadline=late)
     if reply is not None:
         await _announce(city, reply, fresh, city.agent_id)
 

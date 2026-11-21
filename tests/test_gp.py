@@ -12,6 +12,8 @@ gp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gp)
 gp._PULL_TRIES = 2
 gp._PULL_PAUSE = 0
+gp._RX_PATIENCE = 2.0
+gp._RX_LATE_PAUSE = 0.01
 
 
 def msg(sender, text, recipient='agent:gp'):
@@ -98,6 +100,23 @@ class GPTest(unittest.TestCase):
                 self.run_gp(city)
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
+
+    def test_slow_ledger_still_ends_with_the_prescription(self):
+        """Under load the Ledger confirmed after minutes: the citizen stayed on 'Sto aspettando' (journey open)."""
+        class LateCity(City):
+            lookups = 0
+            async def say(self, to, text):
+                await super().say(to, text)
+                if to == gp.LEDGER and text.startswith('prescription '):
+                    self.lookups += 1
+                    if self.lookups == 4:
+                        number = gp.fields_of(text)['prescription_number']
+                        self.rows.append(msg(gp.LEDGER, f'prescription prescription_number={number} '
+                                             'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
+        city = LateCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
+        self.run_gp(city)
+        self.assertGreaterEqual(city.lookups, 4)
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in city.out))
 
     def test_lookup_requires_issued_matching_prescription(self):
         expected = dict(prescription_number='R1', patient='citizen:1', procedure='VIS-FIS', priority='B')
