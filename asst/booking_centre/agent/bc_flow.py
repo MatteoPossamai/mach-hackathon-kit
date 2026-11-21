@@ -15,7 +15,8 @@ from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
 
 async def search(city: City, need_id: str, history: list, citizen: str, number: str,
-                 exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False) -> None:
+                 exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False,
+                 relax_lang: bool = False) -> None:
     """Verify the prescription, read the whole local world and send every fitting slot at once.
 
     ``exclude`` holds slot ids and facility ids that failed (cancelled or unreachable).
@@ -65,6 +66,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
                       else "Per questa priorità è disponibile la lista d'attesa."))
         return
     prefs = await citizen_preferences(city, history, citizen)
+    if relax_lang:
+        # Nobody speaks the language within the deadline, here or on the ring: a valid slot
+        # with another doctor is better than no slot at all.
+        prefs = {key: value for key, value in prefs.items() if key != "lang"}
     items, doctors = [], {}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
     for page in range(1, 21):
@@ -111,6 +116,9 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
     candidates = spread(candidates, need_id)
     if not candidates:
+        if relax_lang:
+            await send(city, citizen, NOTHING_EN if english else NOTHING_IT)
+            return
         await find_partners(city, need_id, citizen, procedure, priority, history)
         return
     note = offer_note(prefs, relaxed, english)
@@ -168,9 +176,15 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     if contacted:
         await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
                    else "Nella nostra ASST non ci sono posti adatti: sto chiedendo alle strutture partner. Le chiederò il consenso prima di condividere i suoi dati.")
+        peers_sent = {peer.agent_id for peer in peers}
+        replied = lambda h: any(row.sender in peers_sent and row.recipient == city.agent_id
+                                and any(act(line) in {"offer", "cancel", "unavailable"} for line in row.text.splitlines())
+                                for row in h)
+        history = await wait_for(city, need_id, replied, RING_WAIT)
+        if not replied(history):
+            await language_fallback(city, need_id, history, citizen)
     else:
-        await send(city, citizen, "I found no suitable availability. You can contact us again or ask the centre for help." if english
-                   else "Non ho trovato disponibilità adatta. Può contattarci di nuovo o chiedere assistenza al centro.")
+        await language_fallback(city, need_id, history, citizen)
 
 
 async def remote_offers(city: City, need_id: str, history: list, citizen: str) -> None:
@@ -443,3 +457,36 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
         slot = fields(line).get("slot_id")
         if slot:
             registry[slot] = (need_id, now)
+
+
+# --- language fallback: never "no slot" while a valid slot exists ------------------------
+
+RING_WAIT = 20.0
+FALLEN_BACK: set[str] = set()
+NOTHING_IT = ("Ho cercato nella nostra ASST e nelle strutture partner: entro la scadenza della ricetta "
+              "non ci sono posti liberi. Se può, mi indichi altri giorni o orari possibili e riprovo subito; "
+              "se i sintomi peggiorano, contatti il medico o il 112.")
+NOTHING_EN = ("I searched our ASST and the partner facilities: there are no free slots within your "
+              "deadline. If you can, tell me other days or times and I will search again at once; "
+              "if your symptoms get worse, contact your doctor or call 112.")
+
+
+async def language_fallback(city: City, need_id: str, history: list, citizen: str) -> None:
+    """Ring empty or silent: offer valid local slots with another doctor, saying so."""
+    if need_id in FALLEN_BACK:
+        return
+    FALLEN_BACK.add(need_id)
+    english = writes_english(history, citizen)
+    prefs = await citizen_preferences(city, history, citizen)
+    lang = prefs.get("lang", "")
+    number = case_number(history, citizen)
+    if not lang or lang == "it" or not number or not TOKEN.fullmatch(number):
+        await send(city, citizen, NOTHING_EN if english else NOTHING_IT)
+        return
+    name = LANG_NAMES.get(lang, (lang, lang))
+    lead = (f"No doctor who speaks {name[1]} is free within your deadline, here or at partner facilities. "
+            "These are the first valid slots with another doctor; the staff will help you at the visit."
+            if english else
+            f"Nessun medico che parla {name[0]} è libero entro la scadenza, né qui né nelle strutture partner. "
+            "Questi sono i primi posti validi con un altro medico; il personale la aiuterà durante la visita.")
+    await search(city, need_id, history, citizen, number, lead=lead, relax_lang=True)

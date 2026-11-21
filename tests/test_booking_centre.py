@@ -11,6 +11,7 @@ spec = importlib.util.spec_from_file_location('booking', Path(__file__).parents[
 booking = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(booking)
 booking.bc_flow.RECEIPT_WAIT = 0.05
+booking.bc_flow.RING_WAIT = 0.05
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
@@ -78,12 +79,13 @@ class BookingTest(unittest.TestCase):
             self.assertEqual(city.out, [])
 
     def test_all_contacted_facilities_unavailable_informs_citizen(self):
+        booking.bc_flow.FALLEN_BACK.clear()
         rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
                 msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner/h')]
         incoming = msg('agent:partner/h', 'unavailable procedure=VIS-FIS')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
-        self.assertTrue(any(to == 'citizen:1' and 'non hanno trovato posti' in text for to, text in city.out))
+        self.assertTrue(any(to == 'citizen:1' and 'strutture partner' in text for to, text in city.out))
 
     def test_first_unavailable_does_not_hide_other_pending_partners(self):
         rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
@@ -588,3 +590,38 @@ class ConcurrencyTest(unittest.TestCase):
         city = FakeCity(rows); city.inbound = rows[-1]
         asyncio.run(booking.handle(city, rows[-1]))
         self.assertFalse(any(text.startswith('confirm') or text.startswith('consent') for _, text in city.out))
+
+
+class LanguageFallbackTest(unittest.TestCase):
+    def setUp(self):
+        booking.bc_flow.FALLEN_BACK.clear()
+
+    def test_ring_empty_reruns_local_search_without_the_language(self):
+        calls = []
+        orig = booking.bc_flow.search
+        async def fake_search(city, need_id, history, citizen, number, **kw): calls.append(kw)
+        async def prefs(city, history, citizen): return {'lang': 'en'}
+        orig_prefs = booking.bc_flow.citizen_preferences
+        booking.bc_flow.search, booking.bc_flow.citizen_preferences = fake_search, prefs
+        try:
+            rows = [msg('citizen:1', 'need.request lang=en prescription_number=prescription_number-N-1', mid='a'),
+                    msg('city:ledger', 'prescription prescription_number=prescription_number-N-1 state=issued', mid='l')]
+            city = FakeCity(rows)
+            asyncio.run(booking.bc_flow.language_fallback(city, 'case-1', rows, 'citizen:1'))
+            asyncio.run(booking.bc_flow.language_fallback(city, 'case-1', rows, 'citizen:1'))
+        finally:
+            booking.bc_flow.search, booking.bc_flow.citizen_preferences = orig, orig_prefs
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0]['relax_lang'])
+        self.assertIn('English', calls[0]['lead'])
+
+    def test_without_a_language_the_answer_is_helpful_not_passive(self):
+        async def prefs(city, history, citizen): return {}
+        orig_prefs = booking.bc_flow.citizen_preferences
+        booking.bc_flow.citizen_preferences = prefs
+        try:
+            city = FakeCity([])
+            asyncio.run(booking.bc_flow.language_fallback(city, 'case-2', [], 'citizen:1'))
+        finally:
+            booking.bc_flow.citizen_preferences = orig_prefs
+        self.assertIn('altri giorni o orari', city.out[0][1])

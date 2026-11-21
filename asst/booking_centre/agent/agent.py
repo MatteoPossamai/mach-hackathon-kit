@@ -217,7 +217,7 @@ async def handle(city: City, message) -> None:
             if contacted and contacted <= unavailable and not sent(history, city.agent_id, citizen, "Le strutture contattate non hanno trovato") and not any(
                 row.sender in contacted and act(row.text) == "offer" for row in history
             ):
-                await send(city, citizen, "Le strutture contattate non hanno trovato posti disponibili. Ci contatti per ulteriore assistenza.")
+                await language_fallback(city, message.need_id, history, citizen)
             return
         if kind in {"booking.receipt", "cancel"} and confirmed:
             forwarded = await relay_facility_reply(city, message.need_id, history, citizen, message)
