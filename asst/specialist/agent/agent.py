@@ -58,8 +58,8 @@ _MAX_PAGE = 8
 _LEAD = timedelta(hours=4)
 _URGENT_LEAD = timedelta(minutes=30)
 _DEADLINE_DAYS = {"B": 2, "D": 5}
-_PULL_TRIES = 16
-_PULL_PAUSE = 0.2
+_PULL_TRIES = 8  # 0.2 s x 16 hammered the relay (429s for the whole team); same window
+_PULL_PAUSE = 0.5
 _URGENT_PULL_PAUSE = 0.08
 _NORMAL_YIELD_CAP_S = 1.5
 _MAX_NORMAL_CONCURRENCY = 4
