@@ -178,6 +178,14 @@ async def main(need: Need, city: City) -> None:
         return
     gp_ack.resilient_history(city)
     text = message.text or need.summary
+    if gp_ack.should_note(message):
+        note = gp_ack.ACK_EN if _english(text) else gp_ack.ACK_IT
+        await gp_ack.with_early_note(city, message, _turn(need, city, message, text), _say, note)
+        return
+    await _turn(need, city, message, text)
+
+
+async def _turn(need: Need, city: City, message: Message, text: str) -> None:
     # Emergency routing must win over clinical-advice refusal: a citizen can
     # mention chest pain and ask for a diagnosis in the same message.
     if role_of() == "gp" and message.sender.startswith("citizen:") and (
@@ -189,10 +197,6 @@ async def main(need: Need, city: City) -> None:
     if message.sender.startswith("citizen:") and clinical(text):
         raise OutOfScope()
     case = await city.history(need_id=message.need_id)
-    if message.sender.startswith("citizen:") and gp_ack.first_contact(case, city.agent_id, message.sender):
-        note = gp_ack.ACK_EN if _english(text) else gp_ack.ACK_IT
-        await gp_ack.with_delayed_ack(city, message, handle(role_of(), city, message, case), _say, note)
-        return
     await handle(role_of(), city, message, case)
 
 
