@@ -127,7 +127,7 @@ class BookingTest(unittest.TestCase):
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=booking-only')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
-        self.assertTrue(any(to == 'citizen:1' and text.startswith('consent purpose=cross_asst') for to, text in city.out))
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out))
         self.assertFalse(any(to == 'agent:partner/h' for to, _ in city.out))
 
     def test_booking_centre_escalates_chest_pain(self):
@@ -209,7 +209,7 @@ class JourneyTest(unittest.TestCase):
             await city.receive('agent:partner/h',
                                f'offer offer_id=partner1 slot_id=s2 doctor_id=doctor-h2 doctor_lang=it {common}\n'
                                f'offer offer_id=partner2 slot_id=s3 doctor_id=doctor-h1 doctor_lang=it/en {common}')
-            self.assertTrue(any(text.startswith('consent purpose=cross_asst') for to, text in city.out if to == 'citizen:1'))
+            self.assertTrue(any(text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out if to == 'citizen:1'))
             self.assertFalse(any(text.startswith('confirm ') for _, text in city.out))
             await city.receive('citizen:1', 'consent purpose=cross_asst consent_ref=cross1')
             offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
@@ -500,7 +500,7 @@ class Level3Test(unittest.TestCase):
             self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
             self.assertFalse(any('data.request' in t for to, t in city.out))
             await city.receive('citizen:1', 'Perfetto, prendo la prima.')
-            self.assertTrue(any(to == 'citizen:1' and t.startswith('consent purpose=booking') for to, t in city.out))
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('data.request purpose=booking fields=consent_ref') for to, t in city.out))
             await city.receive('citizen:1', 'consent purpose=booking consent_ref=c9')
             self.assertTrue(any(to == 'agent:team/h' and t.startswith('confirm ') and 'consent_ref=c9' in t for to, t in city.out))
         asyncio.run(run())
@@ -660,3 +660,49 @@ class RingStallTest(unittest.TestCase):
         text = city.out[0][1]
         self.assertIn('offer offer_id=', text)
         self.assertIn('partner facility', text)
+
+
+class CrossAsstConsentTest(unittest.TestCase):
+    def setUp(self):
+        booking.bc_flow.FALLEN_BACK.clear()
+        booking.RELAYED.clear()
+
+    def test_data_response_with_consent_ref_unlocks_remote_offers(self):
+        me = 'agent:team/booking'
+        rows = [
+            msg('citizen:1', 'I need an English doctor. need.request lang=en prescription_number=rx1', me, mid='a'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00', me, mid='ag'),
+            msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B', me, mid='rx'),
+            msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
+            msg('agent:p/h', 'offer offer_id=p1 slot_id=s1 doctor_id=asst-x-h1 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 doctor_lang=it/en request_id=q', me, mid='o'),
+            msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
+            msg('citizen:1', 'data.response consent_ref=cx-99', me, mid='resp'),
+        ]
+        city = FakeCity(rows)
+        asyncio.run(booking.handle(city, rows[-1]))
+        self.assertTrue(any(to == 'citizen:1' and 'offer offer_id=p1' in t for to, t in city.out))
+        self.assertEqual(booking.cross_consent(rows, me, 'citizen:1'), 'cx-99')
+
+    def test_missing_consent_ref_or_refusal_triggers_local_fallback_never_hangs(self):
+        me = 'agent:team/booking'
+        for reply_text in ('Which consent_ref?', 'No, non voglio condividere i miei dati.', 'consent granted=false'):
+            booking.bc_flow.FALLEN_BACK.clear()
+            rows = [
+                msg('citizen:1', 'need.request lang=en prescription_number=rx1', me, mid='a'),
+                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
+                msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
+                msg('citizen:1', reply_text, me, mid='resp'),
+            ]
+            city = FakeCity(rows)
+            called = []
+            orig = booking.bc_flow.language_fallback
+            async def fake_fb(*a, **k): called.append(1)
+            booking.bc_flow.language_fallback = fake_fb
+            booking.language_fallback = fake_fb
+            try:
+                asyncio.run(booking.handle(city, rows[-1]))
+            finally:
+                booking.bc_flow.language_fallback = orig
+                booking.language_fallback = orig
+            self.assertEqual(called, [1], f'Failed to fall back for reply: {reply_text}')
+            self.assertFalse(any(to == 'agent:p/h' for to, _ in city.out))

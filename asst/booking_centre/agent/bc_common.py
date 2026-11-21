@@ -170,9 +170,37 @@ def case_number(history: list, citizen: str) -> str:
     return number or rx_from_text(history, citizen, "")
 
 
+def asked_consent(history: list, agent: str, citizen: str, purpose: str) -> bool:
+    return (sent(history, agent, citizen, f"data.request purpose={purpose} fields=consent_ref")
+            or sent(history, agent, citizen, f"consent purpose={purpose}"))
+
+
+def last_asked_consent(history: list, agent: str, citizen: str) -> str:
+    """If our latest message to the citizen asked for consent, return its purpose."""
+    for row in reversed(history):
+        if row.sender == agent and row.recipient == citizen:
+            for purpose in ("cross_asst", "booking"):
+                if (row.text.startswith(f"data.request purpose={purpose} fields=consent_ref")
+                        or row.text.startswith(f"consent purpose={purpose}")):
+                    return purpose
+            return ""
+    return ""
+
+
 def cross_consent(history: list, agent: str, citizen: str) -> str:
-    if not sent(history, agent, citizen, "consent purpose=cross_asst"):
+    asked_idx = next((i for i, row in enumerate(history)
+                      if row.sender == agent and row.recipient == citizen
+                      and (row.text.startswith("data.request purpose=cross_asst fields=consent_ref")
+                           or row.text.startswith("consent purpose=cross_asst"))), None)
+    if asked_idx is None:
         return ""
-    return next((fields(row.text).get("consent_ref", "") for row in reversed(history)
-                 if row.sender == citizen and act(row.text) == "consent"
-                 and fields(row.text).get("purpose") == "cross_asst"), "")
+    for row in reversed(history[asked_idx + 1:]):
+        if row.sender != citizen:
+            continue
+        if understood(row).type not in {"consent", "data.response"}:
+            continue
+        row_fields = fields(row.text)
+        ref = row_fields.get("consent_ref", "")
+        if ref and row_fields.get("purpose", "cross_asst") == "cross_asst":
+            return ref
+    return ""

@@ -76,7 +76,10 @@ async def book_choice(city: City, message, history: list, citizen: str, selected
     consent = data.get("consent_ref", "") or cross
     if not consent or (remote and not cross):
         purpose = "cross_asst" if remote else "booking"
-        await send(city, citizen, f"consent purpose={purpose} Posso procedere con la prenotazione scelta? / May I proceed with the booking you chose?")
+        english = writes_english(history, citizen)
+        await send(city, citizen, f"data.request purpose={purpose} fields=consent_ref " + (
+            "May I proceed with the booking you chose?" if english
+            else "Posso procedere con la prenotazione scelta?"))
         return
     if not sent(history, city.agent_id, facility, f"confirm offer_id={selected['offer_id']} "):
         if await slot_expired(city, message.need_id, history, selected):
@@ -161,8 +164,16 @@ async def handle(city: City, message) -> None:
                 return
             await book_choice(city, message, history, citizen, selected, data)
             return
-        if kind == "consent" and data.get("consent_ref"):
-            if data.get("purpose") == "cross_asst" and sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
+        consent_ref = data.get("consent_ref", "")
+        if not consent_ref and message.type != "chat":
+            raw_ref = message.body.get("consent_ref")
+            if not raw_ref and isinstance(message.body.get("provided"), dict):
+                raw_ref = message.body["provided"].get("consent_ref")
+            consent_ref = raw_ref if isinstance(raw_ref, str) else ""
+        pending_consent = last_asked_consent(history, city.agent_id, citizen)
+        if kind in {"consent", "data.response"} and consent_ref:
+            purpose = data.get("purpose", "") or pending_consent
+            if purpose == "cross_asst" and asked_consent(history, city.agent_id, citizen, "cross_asst"):
                 choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
                                if row.sender == citizen and understood(row).type == "confirm"), "")
                 selected = offers(history, city.agent_id, citizen).get(choice)
@@ -170,10 +181,10 @@ async def handle(city: City, message) -> None:
                     booking_consent = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
                                             if row.sender == citizen and act(row.text) == "confirm"), "")
                     await confirm_at_facility(city, message.need_id, citizen, selected,
-                                              booking_consent or data["consent_ref"], data["consent_ref"])
+                                              booking_consent or consent_ref, consent_ref)
                 else:
                     await remote_offers(city, message.need_id, history, citizen)
-            elif data.get("purpose") in {"", "booking"} and sent(history, city.agent_id, citizen, "consent purpose=booking"):
+            elif purpose in {"", "booking"} and asked_consent(history, city.agent_id, citizen, "booking"):
                 # Resume the last genuine citizen choice with this consent, not data
                 # supplied by a peer or a new slot embedded in the consent response.
                 choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
@@ -182,7 +193,18 @@ async def handle(city: City, message) -> None:
                 selected = offers(history, city.agent_id, citizen).get(choice)
                 if selected and selected.get("slot_id"):
                     cross = cross_consent(history, city.agent_id, citizen)
-                    await confirm_at_facility(city, message.need_id, citizen, selected, data["consent_ref"], cross)
+                    await confirm_at_facility(city, message.need_id, citizen, selected, consent_ref, cross)
+            return
+        if pending_consent == "cross_asst" and not cross_consent(history, city.agent_id, citizen) and not data.get("prescription_number"):
+            # Refusal or missing consent_ref: never share data with partner ASSTs, fall back locally.
+            await language_fallback(city, message.need_id, history, citizen)
+            return
+        if pending_consent == "booking" and kind in {"consent", "data.response"} and not data.get("prescription_number"):
+            english = writes_english(history, citizen)
+            await send(city, citizen, (
+                "Without your permission I cannot complete the booking. Let me know if you would like to choose another slot or proceed."
+                if english else
+                "Senza la sua autorizzazione non posso completare la prenotazione. Mi dica se desidera scegliere un altro posto o procedere."))
             return
         number = data.get("prescription_number", "")
         if not number and message.type != "chat":
@@ -227,8 +249,8 @@ async def handle(city: City, message) -> None:
         elif kind == "offer" and requested:
             # The remote facility's claim is not a Ledger-verified local slot. Ask for
             # consent first; never treat a peer's text as authority to disclose data.
-            if not sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
-                await send(city, citizen, "consent purpose=cross_asst " + (
+            if not asked_consent(history, city.agent_id, citizen, "cross_asst"):
+                await send(city, citizen, "data.request purpose=cross_asst fields=consent_ref " + (
                     "I found a possible slot at a partner facility of another ASST. May I share the data needed to check it and book it?"
                     if writes_english(history, citizen) else
                     "Ho trovato una possibile disponibilità in una struttura partner di un'altra ASST. Posso condividere i dati necessari per verificarla e prenotare?"))
