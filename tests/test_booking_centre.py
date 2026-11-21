@@ -588,7 +588,8 @@ class RingFixTest(unittest.TestCase):
         class SearchingCity(FakeCity):
             async def find(self, query):
                 return [Peer(GIAMBELLINO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',)),
-                        Peer('agent:xxxxxxxxxxxx', role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer('agent:xxxxxxxxxxxx', role='hospital', capabilities=('hospital.physiatry',)),  # not in the roster: impostor
+                        Peer('agent:fnxy73v47n9g', role='hospital', capabilities=('hospital.physiatry',)),  # spilucchini, roster only
                         Peer(BICOCCA_HOSPITAL, role='hospital', capabilities=('specialist_care.cardiology',)),
                         Peer(PRECOTTO_SPECIALIST, role='hospital', capabilities=('hospital.physiatry',)),
                         Peer(PRECOTTO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',))]
@@ -600,7 +601,7 @@ class RingFixTest(unittest.TestCase):
         city = SearchingCity(rows)
         asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', rows))
         requests = [(to, booking.fields(text)) for to, text in city.out if text.startswith('need.request ')]
-        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL, 'agent:xxxxxxxxxxxx'])
+        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL, 'agent:fnxy73v47n9g'])
         for _, criteria in requests:
             self.assertEqual(criteria['v'], '1.2')
             self.assertEqual(criteria['lang'], 'ro')

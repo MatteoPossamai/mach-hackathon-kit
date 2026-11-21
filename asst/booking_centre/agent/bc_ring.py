@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from bc_common import CAPABILITY, act, fields, time
+from bc_roster import FACILITY_FAMILY
 
 # Declared facility IDs from MACH-1.2.md. An ID must also be returned by the
 # Index for the service before we send any request. Lambrate is the local ASST.
@@ -34,7 +35,8 @@ _OWN = frozenset({"agent:gdrf9b9kxxss", "agent:nanpr5mgm2py", "agent:c2ewegr2ea3
                   "agent:pky3vqyqbepa", "agent:atp772whjkgd"})
 # Other ASSTs' facilities the Index returns beyond the declared list. A partner
 # never sees citizen data before consent, and its offer is booked by its own Ledger.
-MAX_PARTNERS = 12
+# Every other team's facility of that family (25 in the Index roster): more partners, more slots.
+MAX_PARTNERS = 25
 
 
 def partner_asst(agent_id: str) -> str:
@@ -67,7 +69,8 @@ def ring_peers(peers: list, procedure: str, language: str, *, capability_lookup:
             if peer.role not in ("facility", role):
                 continue
             eligible[agent_id] = 0 if (rare and rare == language) else 1
-        elif family and peer.role == family:
+        elif family and peer.role == family and FACILITY_FAMILY.get(agent_id) == family:
+            # Trust ring: only facilities of the 26 teams in the Index roster, never an impostor.
             eligible[agent_id] = 2
     return sorted(eligible, key=lambda agent_id: eligible[agent_id])[:MAX_PARTNERS]
 
