@@ -65,6 +65,16 @@ def booking_agenda_start(history: list, agent: str, number: str, now: datetime) 
     return now
 
 
+def add_agenda_days(start: datetime, days: int) -> datetime:
+    """Advance by simulated days, which skip Saturday and Sunday (ADR-124)."""
+
+    while days > 0:
+        start += timedelta(days=1)
+        if start.weekday() < 5:
+            days -= 1
+    return start
+
+
 def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetime,
                prefs: dict[str, str], assume_known: bool = True, *,
                priority_start: datetime | None = None) -> bool:
@@ -78,7 +88,7 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
     start = priority_start or now
     if priority == "U" and at.date() != start.date():
         return False
-    if priority in {"B", "D"} and at > start + timedelta(days={"B": 2, "D": 5}[priority]):
+    if priority in {"B", "D"} and at > add_agenda_days(start, {"B": 2, "D": 5}[priority]):
         return False
     if item.get("free", "1").isdigit() and int(item.get("free", "1")) < 1:
         return False

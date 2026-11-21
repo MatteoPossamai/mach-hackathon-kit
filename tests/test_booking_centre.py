@@ -55,6 +55,16 @@ class BookingImprovementsTest(unittest.TestCase):
 
 
 class BookingTest(unittest.TestCase):
+    def test_priority_windows_count_agenda_days_across_the_weekend(self):
+        friday = datetime(2026, 11, 20, 10, tzinfo=timezone.utc)
+        slot = dict(slot_id='s1', doctor_id='doctor-h1', facility='agent:t/h', procedure='VIS-FIS')
+        for priority, cutoff_date in [('B', '2026-11-24'), ('D', '2026-11-27')]:
+            with self.subTest(priority=priority):
+                at_cutoff = {**slot, 'at': f'{cutoff_date}T10:00:00+00:00'}
+                after_cutoff = {**slot, 'at': f'{cutoff_date}T10:01:00+00:00'}
+                self.assertTrue(booking.valid_slot(at_cutoff, 'VIS-FIS', priority, friday, {}))
+                self.assertFalse(booking.valid_slot(after_cutoff, 'VIS-FIS', priority, friday, {}))
+
     def test_filters_priority_preference_and_reserve(self):
         now = datetime(2026, 11, 20, tzinfo=timezone.utc)
         slot = dict(slot_id='s1', doctor_id='doctor-h1', facility='agent:t/h', procedure='VIS-FIS', at='2026-11-21T12:00:00+00:00', day='sat')
@@ -390,19 +400,19 @@ class RebookTest(unittest.TestCase):
                                 and 'slot_id=s2' in text for to, text in city.out))
         asyncio.run(run())
 
-    def test_partner_offers_keep_the_original_deadline(self):
+    def test_partner_offers_keep_the_original_deadline_across_a_weekend(self):
         me = FakeCity.agent_id
         partner = 'agent:partner/h'
         rows = [
             msg(me, 'prescription prescription_number=rx1', 'city:ledger'),
-            msg('city:ledger', 'agenda agenda_now=2026-11-16T08:00:00+00:00'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-20T08:00:00+00:00'),
             msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B'),
-            msg('city:ledger', 'agenda agenda_now=2026-11-16T12:00:00+00:00'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-23T12:00:00+00:00'),
             msg(me, 'need.request procedure=VIS-FIS priority=B request_id=req1', partner),
             msg(partner, f'offer offer_id=early slot_id=partner-early doctor_id=h1 facility={partner} '
-                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-18T08:00:00+00:00\n'
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-24T08:00:00+00:00\n'
                 f'offer offer_id=late slot_id=partner-late doctor_id=h1 facility={partner} '
-                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-18T10:00:00+00:00'),
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-24T10:00:00+00:00'),
         ]
         city = FakeCity(rows)
         asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
