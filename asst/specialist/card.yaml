@@ -1,7 +1,7 @@
 agent_id: agent:pky3vqyqbepa
 team: team:ltf-jecatt
 name: specialist
-version: 1.0.5
+version: 1.0.6
 cap_versions:
   - "1.0"
 profiles:
