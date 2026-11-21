@@ -321,6 +321,10 @@ async def handle(city: City, message) -> None:
             number = rx_from_text(history, citizen, message.text)
         if not number and kind == "data.response":
             number = case_number(history, citizen)
+        if (not number and kind == "data.response"
+                and last_sent_to_citizen(history, city.agent_id, citizen).startswith(
+                    "data.request purpose=booking fields=days ")):
+            number = case_number(history, citizen)
         if not number and last_sent_to_citizen(history, city.agent_id, citizen).startswith(LANGUAGE_QUESTION + " "):
             number = case_number(history, citizen)
         if number and TOKEN.fullmatch(number):

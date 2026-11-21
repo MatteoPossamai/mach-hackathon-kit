@@ -227,7 +227,10 @@ async def _citizen_preferences(city: City, history: list, citizen: str, language
             answer = reply_texts[-1].lower().strip(" .!?")
             confirmed = next((code for code, names in LANG_WORDS.items()
                               if answer == code or answer in names), "")
-        confirmed = confirmed or typed_language
+        # A structured response records what the citizen supplied, not necessarily
+        # the preference they explicitly asked for in prose.
+        if not confirmed and typed_language and typed_language == requested:
+            confirmed = typed_language
         if confirmed:
             prefs["lang"] = confirmed
         else:
