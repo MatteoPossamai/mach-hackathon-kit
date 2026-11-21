@@ -39,7 +39,9 @@ async def _on_agent_availability_request(
 
     # MACH-1.1: acknowledge within seconds (once per request), the Ledger read below takes longer.
     ack_token = f"request_id={request_id}" if request_id else ""
-    if not (ack_token and _we(chat, city.agent_id, ack_token, to=message.sender, word="ack")):
+    import specialist_guard as _early
+    if message.msg_id not in _early.AGENT_ACKED and not (
+            ack_token and _we(chat, city.agent_id, ack_token, to=message.sender, word="ack")):
         await _say(city, message.sender,
                    "ack" + (f" {ack_token}" if ack_token else "") + " Ricevuto, verifico la disponibilità.")
     now, world, chat = await _fetch_agenda_and_world(city, message.need_id, chat, requested_proc)

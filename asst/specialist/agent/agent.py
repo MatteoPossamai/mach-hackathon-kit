@@ -433,6 +433,15 @@ async def main(need: Need, city: City) -> None:
     if _guard.untargeted_request(message, need, ("cardio", "specialist", "vis-card", "cardiol")):
         return
 
+    turn = _guard.agent_turn(message)
+    if turn:
+        # city:clock +1 for a reply to another agent within 10 s: ack before any history read.
+        rid, oid = _guard.agent_token(message, "request_id"), _guard.agent_token(message, "offer_id")
+        await _guard.early_agent_ack(city, message, _say, (
+            "ack" + (f" request_id={rid}" if rid else "") + " Ricevuto, verifico la disponibilità."
+            if turn == "request" else
+            "ack" + (f" offer_id={oid}" if oid else "") + " Ricevuto, registro la prenotazione."))
+
     text = message.text or need.summary
     if text == "__error__" or need.summary == "__error__":
         raise RuntimeError("application")

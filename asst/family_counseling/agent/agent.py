@@ -148,6 +148,15 @@ async def main(need: Need, city: City) -> None:
         return
     if fc_ack.untargeted_request(message, need, ("family", "counsel", "consultor", "gynec", "ginec", "cons-gin")):
         return
+
+    turn = fc_ack.agent_turn(message)
+    if turn:
+        # city:clock +1 for a reply to another agent within 10 s: ack before any history read.
+        rid, oid = fc_ack.agent_token(message, "request_id"), fc_ack.agent_token(message, "offer_id")
+        await fc_ack.early_agent_ack(city, message, c.say, (
+            "ack" + (f" request_id={rid}" if rid else "") + " Ricevuto, verifico la disponibilità."
+            if turn == "request" else
+            "ack" + (f" offer_id={oid}" if oid else "") + " Ricevuto, registro la prenotazione."))
     fc_ack.resilient_history(city)
 
     text = message.text or need.summary

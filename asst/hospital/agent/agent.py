@@ -18,6 +18,11 @@ from pathlib import Path
 
 from city_sdk.city import LEDGER, CapError, City, Message, Need, OutOfScope, clinical, understood
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent))
+import hosp_ack  # noqa: E402
+
 ROLES = ("booking_centre", "gp", "hospital", "specialist_care", "family_counseling")
 _MAX_PAGE = 8
 # Four agenda hours is about half a minute of real time at 480x, so a slot is still
@@ -188,6 +193,13 @@ async def main(need: Need, city: City) -> None:
         # No reply was ever sent to these; skipping the history read keeps the turn instant
         # (deploy custody.ack failed 3 times: one slow relay read > 5 s delayed the lease renew).
         return
+    turn = hosp_ack.agent_turn(message)
+    if turn:
+        offer = hosp_ack.agent_token(message, "offer_id")
+        await hosp_ack.early_agent_ack(city, message, _say, (
+            "Ricevuto, verifico la disponibilità. / Received, checking availability." if turn == "request" else
+            "ack" + (f" offer_id={offer}" if offer else "") + " Ricevuto, registro la prenotazione sul registro. "
+            "/ Received, recording the booking."))
     key = message.need_id or message.msg_id
     lock = _HOSPITAL_LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
@@ -1286,7 +1298,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
             await _say(city, peer, "cancel reason=no_availability" + (f" request_id={request_id}" if request_id else "")
                        + " Qui solo visite fisiatriche (VIS-FIS).")
             return
-    if not _has_agenda(chat) or _latest_slots(chat) is None:
+    if (not _has_agenda(chat) or _latest_slots(chat) is None) and message.msg_id not in hosp_ack.AGENT_ACKED:
         # MACH-1: first answer within 10 s, in plain words, before the Ledger lookups.
         await _say(city, peer, "Ricevuto, verifico la disponibilità. / Received, checking availability.")
     if not _has_agenda(chat) and not _exact(chat, agent, "agenda"):

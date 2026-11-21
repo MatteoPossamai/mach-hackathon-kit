@@ -112,6 +112,30 @@ class HospitalTest(unittest.TestCase):
         incoming = confirm(); city = Slow([incoming, slots()])
         self.run_confirm(city, incoming)
         self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out), city.out)
+    def test_partner_request_is_acknowledged_before_the_history_read(self):
+        """city:clock +1 for a reply to another agent within 10 s: the ack waited for a history
+        read that took longer than that on a loaded relay (2689 ratings, 0.07 points each)."""
+        from city_sdk.city import Message, Need
+        events = []
+        class Slow(City):
+            async def history(self, **kwargs):
+                events.append('history')
+                return list(self.rows)
+            async def say(self, to, text):
+                events.append(('say', to, text[:20]))
+                await super().say(to, text)
+        hospital.hosp_ack.AGENT_ACKED.clear()
+        ring = Message(type='need.request', sender='agent:other/bc', recipient='agent:team/hospital',
+                       msg_id='ring-ack-1', need_id='N-RA', body={'procedure': 'VIS-FIS', 'priority': 'B', 'request_id': 'r9'})
+        city = Slow([ring]); city.inbound = ring
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital.main(Need(service='hospital.physiatry', summary='', message=ring), city))
+        first_say = next(i for i, e in enumerate(events) if e != 'history')
+        self.assertLess(first_say, events.index('history'), events)
+        self.assertEqual(events[first_say][1], 'agent:other/bc')
+        acks = [t for to, t in city.out if to == 'agent:other/bc' and t.startswith('Ricevuto')]
+        self.assertEqual(len(acks), 1, city.out)
+
     def test_untargeted_typed_request_ends_without_a_relay_read(self):
         """Deploy conformance custody.ack (12:27, 12:32, 12:58): the probe need.request for
         service=lab got no reply anyway, but its one history read on a loaded relay took > 5 s,
