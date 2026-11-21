@@ -148,6 +148,9 @@ _LOG = logging.getLogger("care")
 # 21/11 12:2x) and spent the team's relay budget (429s). Same window, a quarter of the reads.
 _PULL_TRIES = 8
 _PULL_PAUSE = 1.0
+# held/committed of a booking: a Ledger at 8-12 s made the turn end with care.held.missing and the
+# booking centre never got the receipt. A booking is rare and worth +2/+1 to us: wait up to 20 s.
+_BOOKING_TRIES = 20
 _HOSPITAL_LOCKS: dict[str, asyncio.Lock] = {}
 # Needs whose sent offers this process remembers; the oldest is forgotten first.
 _SENT_NEEDS = 4096
@@ -390,18 +393,21 @@ async def _until(
     need_id: str | None,
     chat: list[Message],
     ready: Callable[[list[Message]], bool],
+    *,
+    tries: int | None = None,
 ) -> list[Message]:
     """Re-read the case until ``ready`` or the short wait ends. The push may never arrive."""
 
     fresh = chat
-    for attempt in range(_PULL_TRIES):
+    tries = tries or _PULL_TRIES
+    for attempt in range(tries):
         try:
             fresh = await city.history(need_id=need_id)
         except CapError:
             fresh = chat
         if ready(fresh):
             return fresh
-        if attempt + 1 < _PULL_TRIES:
+        if attempt + 1 < tries:
             await asyncio.sleep(_PULL_PAUSE)
     return fresh
 
@@ -414,12 +420,14 @@ async def _await_line(
     token: str,
     *,
     op: str,
+    tries: int | None = None,
 ) -> tuple[Message, list[Message]] | None:
     """The ledger line for ``token``, or a refusal of ``op`` that was not already in ``chat``."""
 
     known = {row.msg_id for row in chat}
     fresh = chat
-    for attempt in range(_PULL_TRIES):
+    tries = tries or _PULL_TRIES
+    for attempt in range(tries):
         try:
             fresh = await city.history(need_id=need_id)
         except CapError:
@@ -432,7 +440,7 @@ async def _await_line(
                 continue
             if first_word(row.text) == "refused" and op in words(row.text):
                 return row, fresh
-        if attempt + 1 < _PULL_TRIES:
+        if attempt + 1 < tries:
             await asyncio.sleep(_PULL_PAUSE)
     return None
 
@@ -1432,7 +1440,7 @@ async def _finish_booking(
 ) -> None:
     """Hold is in the mailbox. Read the held line and commit before this turn ends."""
 
-    found = await _await_line(city, message.need_id, chat, "held", f"slot_id={slot}", op="hold")
+    found = await _await_line(city, message.need_id, chat, "held", f"slot_id={slot}", op="hold", tries=_BOOKING_TRIES)
     if found is None:
         _LOG.info("care.held.missing", extra={"need_id": (message.need_id or "")[:48]})
         return
@@ -1451,7 +1459,7 @@ async def _finish_booking(
         return next((row for row in reversed(rows) if row.msg_id not in known and row.sender == LEDGER
                      and ((first_word(row.text) == "committed" and fields_of(row.text).get("hold_id", hold_id) == hold_id)
                           or (first_word(row.text) == "refused" and "commit" in words(row.text)))), None)
-    fresh = await _until(city, message.need_id, fresh, lambda rows: result(rows) is not None)
+    fresh = await _until(city, message.need_id, fresh, lambda rows: result(rows) is not None, tries=_BOOKING_TRIES)
     reply = result(fresh)
     if reply is None:
         _LOG.info("care.commit.missing", extra={"need_id": (message.need_id or "")[:48]})
