@@ -19,6 +19,7 @@ booking = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(booking)
 booking.bc_flow.RECEIPT_WAIT = 0.05
 booking.bc_flow.RING_WAIT = 0.05
+booking.bc_common.DEDUP_SECONDS = 0.0  # tests reuse texts across cases; DedupTest covers it
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
@@ -247,7 +248,8 @@ class JourneyTest(unittest.TestCase):
             self.assertTrue(any(text.startswith('consent purpose=cross_asst') for to, text in city.out if to == 'citizen:1'))
             self.assertFalse(any(text.startswith('confirm ') for _, text in city.out))
             await city.receive('citizen:1', 'consent purpose=cross_asst consent_ref=cross1')
-            offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
+            offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer ')
+                         and 'waiting_list=true' not in text)
             self.assertEqual(booking.fields(offer)['offer_id'], 'partner2')
             await city.receive('citizen:1', 'confirm offer_id=partner2 consent_ref=book1')
             self.assertIn((PRECOTTO_HOSPITAL, 'confirm offer_id=partner2 slot_id=s3 prescription_number=rx1 '
@@ -908,3 +910,27 @@ class VagueDaysTest(unittest.TestCase):
             self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
             self.assertEqual(sum(1 for to, t in city.out if to == 'citizen:1' and t.startswith('data.request purpose=booking fields=days')), 1)
         asyncio.run(run())
+
+
+class DedupTest(unittest.TestCase):
+    def test_same_text_to_same_citizen_is_sent_once(self):
+        common = booking.bc_common
+        common._RECENT_SENDS.clear()
+        old, common.DEDUP_SECONDS = common.DEDUP_SECONDS, 120.0
+        try:
+            city = FakeCity([])
+            for _ in range(4):
+                asyncio.run(common.send(city, 'citizen:9', 'cancel offer_id=o1 reason=facility_cancelled'))
+            asyncio.run(common.send(city, 'citizen:8', 'cancel offer_id=o1 reason=facility_cancelled'))
+            self.assertEqual([to for to, _ in city.out], ['citizen:9', 'citizen:8'])
+        finally:
+            common.DEDUP_SECONDS = old
+            common._RECENT_SENDS.clear()
+
+    def test_rotation_differs_between_cases_and_is_stable(self):
+        items = [{'slot_id': f's{i}', 'at': f'2026-11-24T{10 + i:02d}:00:00'} for i in range(10)]
+        a = booking.bc_flow.rotate_for_case(items, 'N-1')
+        self.assertEqual(a, booking.bc_flow.rotate_for_case(items, 'N-1'))
+        self.assertEqual(len(a), 6)
+        starts = {booking.bc_flow.rotate_for_case(items, f'N-{i}')[0]['slot_id'] for i in range(20)}
+        self.assertGreater(len(starts), 3)

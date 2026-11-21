@@ -77,7 +77,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         return
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
-    now = time(fields(agenda.text).get("agenda_now", ""))
+    now = agenda_clock(agenda)
     owner = prescription.get("patient") or prescription.get("citizen")
     if owner and owner != citizen:
         await send(city, citizen, "Non riesco a verificare che questa ricetta sia la sua. Ci contatti per assistenza.")
@@ -135,10 +135,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
     priority_start = booking_agenda_start(history, city.agent_id, number, now)
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs, priority_start=priority_start)
-    candidates = spread(candidates, need_id)
+    candidates = rotate_for_case(spread(candidates, need_id), need_id)
     if not candidates:
         if relax_lang:
-            await send(city, citizen, NOTHING_EN if english else NOTHING_IT)
+            await send(city, citizen, nothing_offer(need_id, english))
             return
         if any(row.sender == city.agent_id and act(row.text) == "need.request" and row.recipient.startswith("agent:")
                for row in history):
@@ -189,7 +189,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     if days and all(day in DAY_CODES for day in days.split("/")):
         criteria += f" days={days}"
     agenda = ledger_reply(history, "agenda")
-    now = time(fields(agenda.text).get("agenda_now", "")) if agenda else None
+    now = agenda_clock(agenda)
     if now and now.tzinfo is not None and priority in {"U", "B", "D"}:
         start = booking_agenda_start(history, city.agent_id, case_number(history, citizen), now)
         deadline = (start.replace(hour=23, minute=59, second=59, microsecond=0) if priority == "U"
@@ -220,7 +220,7 @@ def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict
     """
     agenda = ledger_reply(history, "agenda")
     rx = ledger_reply(history, "prescription")
-    now = time(fields(agenda.text).get("agenda_now", "")) if agenda else None
+    now = agenda_clock(agenda)
     prescription = fields(rx.text) if rx else {}
     number = prescription.get("prescription_number", "")
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
@@ -395,7 +395,7 @@ async def slot_expired(city: City, need_id: str, history: list, selected: dict[s
     await send(city, LEDGER, "agenda")
     fresh = await wait_for(city, need_id, lambda h: fresh_reply(h, seen, "agenda") is not None, 4.0)
     agenda = fresh_reply(fresh, seen, "agenda")
-    now = time(fields(agenda.text).get("agenda_now", "")) if agenda else None
+    now = agenda_clock(agenda)
     return bool(now and at.tzinfo and now.tzinfo and at <= now + timedelta(minutes=30))
 
 
@@ -487,6 +487,16 @@ def _held_by_other(registry: dict, slot: str, need_id: str, ttl: float) -> bool:
     return bool(entry) and entry[0] != need_id and _clock.monotonic() - entry[1] < ttl
 
 
+def rotate_for_case(candidates: list, need_id: str, keep: int = 6) -> list:
+    """Every citizen used to get the same earliest slots, so holds collided across pods.
+    Start each case at its own point of the valid list (same case, same start)."""
+    if len(candidates) <= keep:
+        return candidates
+    ordered = sorted(candidates, key=lambda c: c.get("at", c.get("agenda_date", "")))
+    start = int(hashlib.sha256(need_id.encode()).hexdigest(), 16) % len(ordered)
+    return (ordered[start:] + ordered[:start])[:keep]
+
+
 def spread(candidates: list, need_id: str) -> list:
     """Drop slots another case is confirming; offer slots nobody else holds first."""
     free = [c for c in candidates if not _held_by_other(CLAIMED, c.get("slot_id", ""), need_id, CLAIM_SECONDS)]
@@ -514,6 +524,16 @@ NOTHING_EN = ("I searched our ASST and the partner facilities: there are no free
               "if your symptoms get worse, contact your doctor or call 112.")
 
 
+def nothing_offer(need_id: str, english: bool) -> str:
+    """Nothing fits: never a bare 'no'. Offer the waiting list as a real alternative."""
+    wl = "wl-" + hashlib.sha256(need_id.encode()).hexdigest()[:16]
+    return (f"offer offer_id={wl} waiting_list=true\n"
+            + (NOTHING_EN + " Meanwhile I can put you on the waiting list: you will be called as soon "
+               "as a place within your deadline frees up." if english else
+               NOTHING_IT + " Intanto posso inserirla in lista d'attesa: verrà chiamata appena si libera "
+               "un posto entro la scadenza."))
+
+
 async def language_fallback(city: City, need_id: str, history: list, citizen: str) -> None:
     """Ring empty or silent: offer valid local slots with another doctor, saying so."""
     if need_id in FALLEN_BACK:
@@ -524,7 +544,7 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
     lang = prefs.get("lang", "")
     number = case_number(history, citizen)
     if not lang or lang == "it" or not number or not TOKEN.fullmatch(number):
-        await send(city, citizen, NOTHING_EN if english else NOTHING_IT)
+        await send(city, citizen, nothing_offer(need_id, english))
         return
     name = LANG_NAMES.get(lang, (lang, lang))
     lead = (f"No doctor who speaks {name[1]} is free within your deadline, here or at partner facilities. "

@@ -105,9 +105,23 @@ def clean_prose(text: str) -> str:
     return "\n".join(out)
 
 
+_RECENT_SENDS: dict[tuple[str, str], float] = {}
+DEDUP_SECONDS = 120.0
+
+
 async def send(city: City, recipient: str, text: str) -> bool:
     if recipient != LEDGER and text:
         text = clean_prose(text)
+        # Parallel turns (a burst of facility cancels) used to send the same offers or the
+        # same cancel 4 times; the citizen then refused the repeats. Same text, same peer: once.
+        import time as _t
+        key = (recipient, hashlib.sha256(text.encode()).hexdigest())
+        now = _t.monotonic()
+        if now - _RECENT_SENDS.get(key, -1e9) < DEDUP_SECONDS:
+            return True
+        if len(_RECENT_SENDS) > 5000:
+            _RECENT_SENDS.clear()
+        _RECENT_SENDS[key] = now
     try:
         await city.say(recipient, text)
         return True
@@ -204,3 +218,31 @@ def cross_consent(history: list, agent: str, citizen: str) -> str:
         if ref and row_fields.get("purpose", "cross_asst") == "cross_asst":
             return ref
     return ""
+
+
+AGENDA_RATE = 60.0  # one real second is one agenda minute (wave rate)
+
+
+def agenda_clock(row):
+    """``agenda_now`` of a Ledger agenda reply, moved forward by the real time since it was sent.
+
+    A reply read again from history minutes later would otherwise offer slots already past."""
+
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    if row is None:
+        return None
+    now = time(fields(row.text).get("agenda_now", ""))
+    sent = getattr(row, "sent_at", "") or ""
+    if now is None or not sent:
+        return now
+    try:
+        stamp = _dt.fromisoformat(sent.replace("Z", "+00:00"))
+    except ValueError:
+        return now
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=_tz.utc)
+    elapsed = (_dt.now(_tz.utc) - stamp).total_seconds()
+    if elapsed <= 0 or elapsed > 6 * 3600:
+        return now
+    return now + _td(seconds=elapsed * AGENDA_RATE)
