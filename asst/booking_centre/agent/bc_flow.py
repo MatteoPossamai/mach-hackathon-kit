@@ -13,6 +13,7 @@ from bc_common import *  # noqa: F401,F403
 from bc_prefs import *  # noqa: F401,F403
 from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
+from bc_ring import partner_asst, partner_offer_rows, ring_peers, ring_requests
 
 ACK_IT = "Ricevuto, verifico la ricetta e la disponibilità: le rispondo tra pochi istanti."
 ACK_EN = "Received: I am checking your referral and the availability, I will answer in a few moments."
@@ -166,45 +167,44 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     # Search anonymously with structured scheduling criteria only.
     capability = CAPABILITY.get(procedure, "")
     peers = []
+    prefs = await citizen_preferences(city, history, citizen)
+    lang = prefs.get("lang", "")
     for query in ([capability] if capability else []) + [procedure]:
         try:
-            peers = await city.find(query)
+            peers = ring_peers(await city.find(query), procedure, lang, capability_lookup=query == capability)
         except CapError:
             peers = []
         if peers:
             break
     request_id = "search-" + hashlib.sha256(need_id.encode()).hexdigest()[:16]
-    contacted = 0
+    contacted = set()
     english = writes_english(history, citizen)
-    prefs = await citizen_preferences(city, history, citizen)
-    lang = prefs.get("lang", "")
     gender = prefs.get("gender_preference", prefs.get("gender", ""))
     days = prefs.get("days", "")
     criteria = ""
     if re.fullmatch(r"[a-z]{2,3}", lang):
         criteria += f" lang={lang}"
     if gender in {"m", "f"}:
-        criteria += f" gender={gender}"
+        criteria += f" gender_preference={gender} gender={gender}"
     if days and all(day in DAY_CODES for day in days.split("/")):
         criteria += f" days={days}"
+    agenda = ledger_reply(history, "agenda")
+    now = time(fields(agenda.text).get("agenda_now", "")) if agenda else None
+    if now and now.tzinfo is not None and priority in {"U", "B", "D"}:
+        start = booking_agenda_start(history, city.agent_id, case_number(history, citizen), now)
+        deadline = (start.replace(hour=23, minute=59, second=59, microsecond=0) if priority == "U"
+                    else add_agenda_days(start, {"B": 2, "D": 5}[priority]))
+        criteria += f" deadline={deadline.replace(tzinfo=None).isoformat(timespec='seconds')}"
+    request = (f"need.request v=1.2 service_type={capability} procedure={procedure} "
+               f"priority={priority} request_id={request_id}{criteria}")
     for peer in peers:
-        if contacted >= 12:
-            break
-        # The Index names the family (hospital, specialist_care, family_counseling), not "facility".
-        if peer.role not in FACILITY_ROLES or peer.agent_id == city.agent_id or peer.agent_id in TEAM_AGENTS:
-            continue
-        caps = tuple(getattr(peer, "capabilities", ()) or ())
-        if capability and caps and capability not in caps:
-            continue
-        if await send(city, peer.agent_id, f"need.request service_type={capability or procedure} procedure={procedure} priority={priority} request_id={request_id}{criteria}"):
-            contacted += 1
+        if await send(city, peer, request):
+            contacted.add(peer)
     if contacted:
         await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
                    else "Nella nostra ASST non ci sono posti adatti: sto chiedendo alle strutture partner. Le chiederò il consenso prima di condividere i suoi dati.")
-        peers_sent = {peer.agent_id for peer in peers}
-        replied = lambda h: any(row.sender in peers_sent and row.recipient == city.agent_id
-                                and any(act(line) == "offer" for line in row.text.splitlines())
-                                for row in h)
+        replied = lambda h: any(item["facility"] in contacted
+                                for item in matching_partner_offers(h, city.agent_id, citizen, prefs))
         history = await wait_for(city, need_id, replied, RING_WAIT)
         if not replied(history):
             await language_fallback(city, need_id, history, citizen)
@@ -212,7 +212,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         await language_fallback(city, need_id, history, citizen)
 
 
-async def remote_offers(city: City, need_id: str, history: list, citizen: str) -> None:
+def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict) -> list[dict]:
     """Recheck a partner's structured claims against the case and search criteria.
 
     The local Ledger does not expose other ASSTs' slots, so the partner remains
@@ -224,13 +224,13 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
     prescription = fields(rx.text) if rx else {}
     number = prescription.get("prescription_number", "")
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
-    if not now or not number or prescription.get("state") != "issued":
-        return
-    priority_start = booking_agenda_start(history, city.agent_id, number, now)
-    candidates = []
-    prefs = await citizen_preferences(city, history, citizen)
+    if not now or now.tzinfo is None or not number or prescription.get("state") != "issued":
+        return []
+    priority_start = booking_agenda_start(history, agent, number, now)
+    candidates = {}
+    used_offer_ids = set()
     cancelled = set()
-    previous_offers = offers(history, city.agent_id, citizen)
+    previous_offers = offers(history, agent, citizen)
     for row in history:
         if act(row.text) == "cancel" and row.sender.startswith("agent:"):
             prior = previous_offers.get(fields(row.text).get("offer_id", ""))
@@ -238,46 +238,51 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
                 cancelled.add(prior.get("slot_id"))
     refused, cutoff = citizen_refusals(history, citizen, previous_offers)
     cancelled |= refused
+    requests = ring_requests(history, agent)
+    gender = prefs.get("gender_preference", prefs.get("gender", ""))
     for row in history:
-        if not row.sender.startswith("agent:") or not any(act(line) == "offer" for line in row.text.splitlines()):
-            continue
-        request = next((fields(previous.text) for previous in reversed(history)
-                        if previous.sender == city.agent_id and previous.recipient == row.sender
-                        and act(previous.text) == "need.request"), None)
+        request = requests.get(row.sender) if row.recipient == agent else None
         if not request or request.get("procedure") != procedure or request.get("priority") != priority:
             continue
-        for line in row.text.splitlines():
-            if act(line) != "offer":
+        for item in partner_offer_rows(row, request, now):
+            if item.get("slot_id") in cancelled or not before_cutoff(item, cutoff):
                 continue
-            item = fields(line)
-            if item.get("request_id") and item["request_id"] != request.get("request_id"):
+            offer_id = item["offer_id"]
+            earlier = previous_offers.get(offer_id)
+            if offer_id in used_offer_ids:
                 continue
-            if item.get("facility") != row.sender or item.get("slot_id") in cancelled or not before_cutoff(item, cutoff):
+            if earlier and (earlier.get("facility"), earlier.get("slot_id")) != (row.sender, item["slot_id"]):
                 continue
-            for key, alias in (("languages", "doctor_lang"), ("gender", "doctor_gender")):
-                if alias in item:
-                    item.setdefault(key, item[alias])
-            at = time(item.get("at", item.get("agenda_date", "")))
-            if at and not (item.get("day") or item.get("agenda_day")):
-                item["day"] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[at.weekday()]
             if prefs.get("lang") and prefs["lang"] != "it" and not item.get("languages"):
                 continue  # never trust that a partner applied our language filter
+            if gender and not item.get("gender"):
+                continue
             if valid_slot(item, procedure, priority, now, prefs, assume_known=False,
                           priority_start=priority_start):
-                candidates.append(item)
+                candidates[(row.sender, item["slot_id"])] = item
+                used_offer_ids.add(offer_id)
+    return list(candidates.values())
+
+
+async def remote_offers(city: City, need_id: str, history: list, citizen: str) -> None:
+    prefs = await citizen_preferences(city, history, citizen)
+    candidates = matching_partner_offers(history, city.agent_id, citizen, prefs)
     english = writes_english(history, citizen)
     lines = []
+    assts = {}
     for item in candidates:
-        line = offer_line(item, number, priority)
-        if sum(len(x) + 1 for x in lines) + len(line) > 1900:
+        public = {key: item[key] for key in ("offer_id", "slot_id", "doctor_id", "facility", "procedure", "at", "day")}
+        line = offer_line(public)
+        if len(lines) >= 6 or sum(len(x) + 1 for x in lines) + len(line) > 1700:
             break
         lines.append(line)
+        assts[partner_asst(item["facility"])] = None
     if lines:
-        await send(city, citizen, "\n".join(lines) + "\n" + (
-            "These slots are at a partner facility of another ASST and fit your referral and your needs: "
-            "tell me which one you prefer, I will share only the data needed to book it." if english else
-            "Questi posti sono in una struttura partner di un'altra ASST e rispettano la ricetta e le sue esigenze: "
-            "mi dica quale preferisce, condividerò solo i dati necessari per prenotarlo."))
+        names = ", ".join(assts)
+        where = "a partner facility" if len(assts) == 1 else "partner facilities"
+        note = (f"I found appointments at {where} in {names}. Which time works for you?" if english else
+                f"Ho trovato appuntamenti presso le strutture partner di {names}. Quale orario preferisce?")
+        await send(city, citizen, "\n".join(lines + [note]))
     else:
         await language_fallback(city, need_id, history, citizen)
 
@@ -395,20 +400,20 @@ async def slot_expired(city: City, need_id: str, history: list, selected: dict[s
 async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: dict[str, str], consent: str,
                               cross: str = "") -> None:
     facility = selected["facility"]
-    number = selected.get("prescription_number", "")
-    if not number:
-        try:
-            number = case_number(await city.history(need_id=need_id), citizen)
-        except CapError:
-            number = ""
+    try:
+        history = await city.history(need_id=need_id)
+    except CapError:
+        history = []
+    remote = sent(history, city.agent_id, facility, "need.request ")
+    if remote and (not cross or facility not in ring_requests(history, city.agent_id)):
+        await language_fallback(city, need_id, history, citizen)
+        return
+    number = selected.get("prescription_number", "") or case_number(history, citizen)
     text = (f"confirm offer_id={selected['offer_id']} slot_id={selected['slot_id']} "
             f"prescription_number={number} citizen={citizen} consent_ref={consent}")
-    if cross:
+    if remote:
         text += f" cross_asst_consent_ref={cross}"
-    try:
-        seen = frozenset(row.msg_id for row in await city.history(need_id=need_id))
-    except CapError:
-        seen = frozenset()
+    seen = frozenset(row.msg_id for row in history)
     answered = lambda h: facility_reply(h, facility, seen) is not None
     CLAIMED[selected["slot_id"]] = (need_id, _clock.monotonic())
     if not await send(city, facility, text):
@@ -433,7 +438,6 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         await send(city, citizen, PENDING_NOTE_EN if writes_english(history, citizen) else PENDING_NOTE_IT)
 
 
-FACILITY_ROLES = frozenset({"facility", "hospital", "specialist_care", "family_counseling"})
 DEADLINE_REASONS = frozenset({"deadline", "too_late", "late", "expired", "past"})
 
 

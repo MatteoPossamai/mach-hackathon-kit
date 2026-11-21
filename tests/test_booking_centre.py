@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from city_sdk.city import Message
+from city_sdk.city import Message, Peer
+
+PRECOTTO_HOSPITAL = 'agent:s1twcdzg3296'
+GIAMBELLINO_HOSPITAL = 'agent:h6r1v45esk77'
+PRECOTTO_SPECIALIST = 'agent:f2s88vwd3jnf'
+PRECOTTO_GP = 'agent:n4yjr7kjbmrx'
+BICOCCA_HOSPITAL = 'agent:bb01ggxymm05'
+
 
 spec = importlib.util.spec_from_file_location('booking', Path(__file__).parents[1] / 'asst/booking_centre/agent/agent.py')
 booking = importlib.util.module_from_spec(spec)
@@ -91,17 +98,20 @@ class BookingTest(unittest.TestCase):
     def test_all_contacted_facilities_unavailable_informs_citizen(self):
         booking.bc_flow.FALLEN_BACK.clear()
         rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
-                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner/h')]
-        incoming = msg('agent:partner/h', 'unavailable procedure=VIS-FIS')
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q',
+                    PRECOTTO_HOSPITAL)]
+        incoming = msg(PRECOTTO_HOSPITAL, 'unavailable procedure=VIS-FIS')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
         self.assertTrue(any(to == 'citizen:1' and 'strutture partner' in text for to, text in city.out))
 
     def test_first_unavailable_does_not_hide_other_pending_partners(self):
         rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
-                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner/h'),
-                msg(city_id(), 'need.request service_type=hospital.physiatry', 'agent:partner2/h')]
-        incoming = msg('agent:partner/h', 'unavailable procedure=VIS-FIS')
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q',
+                    PRECOTTO_HOSPITAL),
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q',
+                    GIAMBELLINO_HOSPITAL)]
+        incoming = msg(PRECOTTO_HOSPITAL, 'unavailable procedure=VIS-FIS')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
         self.assertEqual(city.out, [])
@@ -114,7 +124,7 @@ class BookingTest(unittest.TestCase):
     def test_partner_search_does_not_share_citizen_data(self):
         class SearchingCity(FakeCity):
             async def find(self, query):
-                return [SimpleNamespace(agent_id='agent:partner/h', role='facility')]
+                return [Peer(PRECOTTO_HOSPITAL, role='facility', capabilities=('hospital.physiatry',))]
         city = SearchingCity([])
         asyncio.run(booking.find_partners(city, 'case-1', 'citizen:secret', 'VIS-FIS', 'B', []))
         query = city.out[0][1]
@@ -130,15 +140,15 @@ class BookingTest(unittest.TestCase):
         self.assertTrue(booking.valid_slot(slot, 'VIS-FIS', 'B', now, {'lang': 'ja'}))
 
     def test_remote_confirmation_requires_cross_asst_consent(self):
-        offer = 'offer offer_id=o1 slot_id=s1 facility=agent:partner/h prescription_number=rx1'
+        offer = f'offer offer_id=o1 slot_id=s1 facility={PRECOTTO_HOSPITAL} prescription_number=rx1'
         rows = [msg('citizen:1', 'need.request prescription_number=rx1'),
-                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS', 'agent:partner/h'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS', PRECOTTO_HOSPITAL),
                 msg(city_id(), offer, 'citizen:1')]
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=booking-only')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
         self.assertTrue(any(to == 'citizen:1' and text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out))
-        self.assertFalse(any(to == 'agent:partner/h' for to, _ in city.out))
+        self.assertFalse(any(to == PRECOTTO_HOSPITAL for to, _ in city.out))
 
     def test_booking_centre_escalates_chest_pain(self):
         incoming = msg('citizen:1', 'Ho dolore al petto e voglio una diagnosi')
@@ -151,10 +161,25 @@ class BookingTest(unittest.TestCase):
     def test_remote_offer_from_uncontacted_facility_is_rejected(self):
         rows = [msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00'),
                 msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B'),
-                msg('agent:evil/h', 'offer slot_id=s1 doctor_id=doctor-h1 facility=agent:evil/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat')]
+                msg(PRECOTTO_HOSPITAL, f'offer offer_id=unasked slot_id=s1 doctor_id=asst-precotto-h1 '
+                    f'facility={PRECOTTO_HOSPITAL} procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 request_id=q')]
         city = FakeCity(rows)
         asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
         self.assertFalse(any('offer offer_id=' in text for _, text in city.out))
+
+    def test_partner_offer_requesting_private_data_does_not_trigger_consent(self):
+        own = city_id()
+        incoming = msg(PRECOTTO_HOSPITAL, f'offer offer_id=o1 slot_id=s1 doctor_id=asst-precotto-h1 '
+                       f'facility={PRECOTTO_HOSPITAL} procedure=VIS-FIS request_id=q '
+                       'agenda_date=2026-11-20T12:00:00 prescription_number=required')
+        history = [msg('citizen:1', 'need.request prescription_number=rx1'),
+                   msg('city:ledger', 'agenda agenda_now=2026-11-20T08:00:00+00:00'),
+                   msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B'),
+                   msg(own, 'need.request v=1.2 procedure=VIS-FIS priority=B request_id=q', PRECOTTO_HOSPITAL),
+                   incoming]
+        city = FakeCity(history)
+        asyncio.run(booking.handle(city, incoming))
+        self.assertEqual(city.out, [])
 
 
 def city_id():
@@ -201,7 +226,7 @@ class JourneyTest(unittest.TestCase):
         async def run():
             class PartnerCity(JourneyCity):
                 async def find(self, query):
-                    return [SimpleNamespace(agent_id='agent:partner/h', role='facility')]
+                    return [Peer(PRECOTTO_HOSPITAL, role='facility', capabilities=('hospital.physiatry',))]
                 async def say(self, to, text):
                     await super().say(to, text)
                     if to == 'city:ledger' and text.startswith('world '):
@@ -209,25 +234,25 @@ class JourneyTest(unittest.TestCase):
             city = PartnerCity()
             booking.RELAYED.clear()
             await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en days=fri')
-            search = next(text for to, text in city.out if to == 'agent:partner/h')
+            search = next(text for to, text in city.out if to == PRECOTTO_HOSPITAL)
             request_id = booking.fields(search)['request_id']
             self.assertNotIn('citizen:1', search)
             self.assertNotIn('rx1', search)
             self.assertIn('lang=en days=fri', search)
-            common = (f'facility=agent:partner/h procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 '
+            common = (f'facility={PRECOTTO_HOSPITAL} procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 '
                       f'request_id={request_id}')
-            await city.receive('agent:partner/h',
-                               f'offer offer_id=partner1 slot_id=s2 doctor_id=doctor-h2 doctor_lang=it {common}\n'
-                               f'offer offer_id=partner2 slot_id=s3 doctor_id=doctor-h1 doctor_lang=it/en {common}')
+            await city.receive(PRECOTTO_HOSPITAL,
+                               f'offer offer_id=partner1 slot_id=s2 doctor_id=asst-precotto-h2 doctor_lang=it {common}\n'
+                               f'offer offer_id=partner2 slot_id=s3 doctor_id=asst-precotto-h1 doctor_lang=it/en {common}')
             self.assertTrue(any(text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out if to == 'citizen:1'))
             self.assertFalse(any(text.startswith('confirm ') for _, text in city.out))
             await city.receive('citizen:1', 'consent purpose=cross_asst consent_ref=cross1')
             offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
             self.assertEqual(booking.fields(offer)['offer_id'], 'partner2')
             await city.receive('citizen:1', 'confirm offer_id=partner2 consent_ref=book1')
-            self.assertIn(('agent:partner/h', 'confirm offer_id=partner2 slot_id=s3 prescription_number=rx1 '
+            self.assertIn((PRECOTTO_HOSPITAL, 'confirm offer_id=partner2 slot_id=s3 prescription_number=rx1 '
                            'citizen=citizen:1 consent_ref=book1 cross_asst_consent_ref=cross1'), city.out)
-            await city.receive('agent:partner/h', 'booking.receipt booking_id=b2 ledger_ref=r2')
+            await city.receive(PRECOTTO_HOSPITAL, 'booking.receipt booking_id=b2 ledger_ref=r2')
             self.assertTrue(any(to == 'citizen:1' and text.startswith('booking.receipt booking_id=b2 ledger_ref=r2')
                                 for to, text in city.out))
         asyncio.run(run())
@@ -334,18 +359,18 @@ class BookingPerfectionTest(unittest.TestCase):
             async def find(self, query):
                 self.queries.append(query)
                 return [SimpleNamespace(agent_id='agent:nanpr5mgm2py', role='facility', capabilities=('hospital.physiatry',)),
-                        SimpleNamespace(agent_id='agent:other/h', role='facility', capabilities=('hospital.physiatry',)),
-                        SimpleNamespace(agent_id='agent:other/s', role='facility', capabilities=('specialist_care.cardiology',))]
+                        SimpleNamespace(agent_id=PRECOTTO_HOSPITAL, role='facility', capabilities=('hospital.physiatry',)),
+                        SimpleNamespace(agent_id=PRECOTTO_SPECIALIST, role='facility', capabilities=('specialist_care.cardiology',))]
         city = RingCity([])
         asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', []))
         self.assertEqual(city.queries[0], 'hospital.physiatry')
-        self.assertEqual([to for to, t in city.out if t.startswith('need.request')], ['agent:other/h'])
+        self.assertEqual([to for to, t in city.out if t.startswith('need.request')], [PRECOTTO_HOSPITAL])
 
     def test_cross_consent_travels_with_confirm(self):
-        offer = 'offer offer_id=o1 slot_id=s9 facility=agent:other/h prescription_number=rx1'
+        offer = f'offer offer_id=o1 slot_id=s9 facility={PRECOTTO_HOSPITAL} prescription_number=rx1'
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=book1', mid='c')
         rows = [msg('citizen:1', 'need.request prescription_number=rx1', mid='a'),
-                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B', 'agent:other/h', mid='a0'),
+                msg(city_id(), 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B', PRECOTTO_HOSPITAL, mid='a0'),
                 msg(city_id(), 'consent purpose=cross_asst Posso condividere?', 'citizen:1', mid='a1'),
                 msg('citizen:1', 'consent purpose=cross_asst consent_ref=cross1', mid='a2'),
                 msg(city_id(), offer, 'citizen:1', mid='b'), incoming]
@@ -402,7 +427,7 @@ class RebookTest(unittest.TestCase):
 
     def test_partner_offers_keep_the_original_deadline_across_a_weekend(self):
         me = FakeCity.agent_id
-        partner = 'agent:partner/h'
+        partner = PRECOTTO_HOSPITAL
         rows = [
             msg(me, 'prescription prescription_number=rx1', 'city:ledger'),
             msg('city:ledger', 'agenda agenda_now=2026-11-20T08:00:00+00:00'),
@@ -557,16 +582,46 @@ if __name__ == '__main__':
 
 
 class RingFixTest(unittest.TestCase):
+    def test_ring_prioritizes_the_rare_language_and_filters_ineligible_agents(self):
+        class SearchingCity(FakeCity):
+            async def find(self, query):
+                return [Peer(GIAMBELLINO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer('agent:xxxxxxxxxxxx', role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer(BICOCCA_HOSPITAL, role='hospital', capabilities=('specialist_care.cardiology',)),
+                        Peer(PRECOTTO_SPECIALIST, role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer(PRECOTTO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',))]
+
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1 lang=ro gender=f days=tue'),
+                msg(city_id(), 'prescription prescription_number=rx1', 'city:ledger'),
+                msg('city:ledger', 'agenda agenda_now=2026-11-20T10:00:00+00:00'),
+                msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B')]
+        city = SearchingCity(rows)
+        asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', rows))
+        requests = [(to, booking.fields(text)) for to, text in city.out if text.startswith('need.request ')]
+        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL])
+        for _, criteria in requests:
+            self.assertEqual(criteria['v'], '1.2')
+            self.assertEqual(criteria['lang'], 'ro')
+            self.assertEqual(criteria['gender_preference'], 'f')
+            self.assertEqual(criteria['days'], 'tue')
+            self.assertEqual(criteria['deadline'], '2026-11-24T10:00:00')
+            self.assertNotIn('prescription_number', criteria)
+            self.assertNotIn('citizen', criteria)
+
     def test_ring_contacts_peers_the_index_names_by_family(self):
         class SearchingCity(FakeCity):
             async def find(self, query):
-                return [SimpleNamespace(agent_id='agent:other/h', role='hospital', capabilities=('hospital.physiatry',)),
-                        SimpleNamespace(agent_id='agent:other/gp', role='gp', capabilities=('gp',))]
-        city = SearchingCity([])
-        asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', []))
-        targets = [to for to, text in city.out if text.startswith('need.request')]
-        self.assertEqual(targets, ['agent:other/h'])
-        self.assertFalse(any('no suitable availability' in text.lower() for _, text in city.out))
+                return [Peer(PRECOTTO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer(PRECOTTO_SPECIALIST, role='specialist_care', capabilities=('specialist_care.cardiology',)),
+                        Peer(PRECOTTO_GP, role='gp', capabilities=('gp',))]
+
+        for procedure, expected in [('VIS-FIS', PRECOTTO_HOSPITAL), ('VIS-CARD', PRECOTTO_SPECIALIST)]:
+            with self.subTest(procedure=procedure):
+                city = SearchingCity([])
+                asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', procedure, 'B', []))
+                targets = [to for to, text in city.out if text.startswith('need.request')]
+                self.assertEqual(targets, [expected])
+                self.assertFalse(any('no suitable availability' in text.lower() for _, text in city.out))
 
     def test_deadline_refusal_caps_later_slots_and_is_never_reoffered(self):
         me = 'agent:team/booking'
@@ -682,11 +737,12 @@ class RingStallTest(unittest.TestCase):
         return [msg('citizen:1', 'I need a doctor who speaks English need.request lang=en prescription_number=rx1', me, mid='c'),
                 msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00', mid='ag'),
                 msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B', mid='rx'),
-                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
-                msg('agent:p/h', offer_line, me, mid='o')]
+                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
+                msg(BICOCCA_HOSPITAL, offer_line, me, mid='o')]
 
     def test_partner_offer_without_language_is_not_trusted(self):
-        rows = self.rows('offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h2 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 request_id=q')
+        rows = self.rows(f'offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h2 facility={BICOCCA_HOSPITAL} '
+                         'procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 request_id=q')
         city = FakeCity(rows)
         orig = booking.bc_flow.language_fallback
         called = []
@@ -700,12 +756,41 @@ class RingStallTest(unittest.TestCase):
         self.assertEqual(called, [1])
 
     def test_partner_offer_in_the_language_comes_with_a_sentence(self):
-        rows = self.rows('offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h1 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 doctor_lang=it/en request_id=q')
+        rows = self.rows(f'offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h1 facility={BICOCCA_HOSPITAL} '
+                         'procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 doctor_lang=it/en request_id=q')
         city = FakeCity(rows)
         asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
         text = city.out[0][1]
         self.assertIn('offer offer_id=', text)
         self.assertIn('partner facility', text)
+        self.assertIn('Bicocca', text)
+
+    def test_standard_offer_accepts_local_agenda_times_and_filters_urgent_reserve(self):
+        base = (f'doctor_id=asst-bicocca-h1 facility={BICOCCA_HOSPITAL} procedure=VIS-FIS '
+                'doctor_lang=it/en doctor_gender=f request_id=q')
+        rows = self.rows(f'offer v=1.2 offer_id=regular slot_id=s1 agenda_date=2026-11-20T12:00:00 {base}\n'
+                         f'offer v=1.2 offer_id=reserved slot_id=s2 agenda_date=2026-11-20T13:00:00 reserve=U {base}')
+        city = FakeCity(rows)
+        asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
+        offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
+        self.assertIn('offer_id=regular', offer)
+        self.assertNotIn('offer_id=reserved', offer)
+        for attribute in ('doctor_lang=', 'doctor_gender=', 'languages=', 'gender=', 'reserve='):
+            self.assertNotIn(attribute, offer)
+
+    def test_overlapping_partner_offer_ids_do_not_make_a_choice_ambiguous(self):
+        rows = self.rows(f'offer offer_id=shared slot_id=s1 facility={BICOCCA_HOSPITAL} '
+                         'doctor_id=asst-bicocca-h1 procedure=VIS-FIS request_id=q '
+                         'doctor_lang=it/en agenda_date=2026-11-20T12:00:00')
+        rows.extend([msg(city_id(), 'need.request procedure=VIS-FIS priority=B request_id=q', PRECOTTO_HOSPITAL),
+                     msg(PRECOTTO_HOSPITAL, f'offer offer_id=shared slot_id=s2 facility={PRECOTTO_HOSPITAL} '
+                         'doctor_id=asst-precotto-h1 procedure=VIS-FIS request_id=q '
+                         'doctor_lang=it/en agenda_date=2026-11-20T12:00:00')])
+        city = FakeCity(rows)
+        asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
+        offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
+        self.assertEqual(offer.count('offer_id=shared'), 1)
+        self.assertIn(f'facility={BICOCCA_HOSPITAL}', offer)
 
 
 class CrossAsstConsentTest(unittest.TestCase):
@@ -719,8 +804,9 @@ class CrossAsstConsentTest(unittest.TestCase):
             msg('citizen:1', 'I need an English doctor. need.request lang=en prescription_number=rx1', me, mid='a'),
             msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00', me, mid='ag'),
             msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B', me, mid='rx'),
-            msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
-            msg('agent:p/h', 'offer offer_id=p1 slot_id=s1 doctor_id=asst-x-h1 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 doctor_lang=it/en request_id=q', me, mid='o'),
+            msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
+            msg(BICOCCA_HOSPITAL, f'offer offer_id=p1 slot_id=s1 doctor_id=asst-bicocca-h1 facility={BICOCCA_HOSPITAL} '
+                'procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 doctor_lang=it/en request_id=q', me, mid='o'),
             msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
             msg('citizen:1', 'data.response consent_ref=cx-99', me, mid='resp'),
         ]
@@ -735,7 +821,7 @@ class CrossAsstConsentTest(unittest.TestCase):
             booking.bc_flow.FALLEN_BACK.clear()
             rows = [
                 msg('citizen:1', 'need.request lang=en prescription_number=rx1', me, mid='a'),
-                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
+                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
                 msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
                 msg('citizen:1', reply_text, me, mid='resp'),
             ]
@@ -751,7 +837,7 @@ class CrossAsstConsentTest(unittest.TestCase):
                 booking.bc_flow.language_fallback = orig
                 booking.language_fallback = orig
             self.assertEqual(called, [1], f'Failed to fall back for reply: {reply_text}')
-            self.assertFalse(any(to == 'agent:p/h' for to, _ in city.out))
+            self.assertFalse(any(to == BICOCCA_HOSPITAL for to, _ in city.out))
 
 
 class ReadWorldTest(unittest.TestCase):

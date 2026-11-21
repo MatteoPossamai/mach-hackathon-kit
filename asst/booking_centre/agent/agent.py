@@ -223,32 +223,29 @@ async def handle(city: City, message) -> None:
             await follow_up(city, message.need_id, history, citizen)
         return
     if message.sender.startswith("agent:"):
-        # Only accept a reply from an agent we actually contacted in this case.
-        requested = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "need.request" for row in history)
+        requests = ring_requests(history, city.agent_id)
+        requested = message.sender in requests
         confirmed = any(row.sender == city.agent_id and row.recipient == message.sender and act(row.text) == "confirm" for row in history)
-        if (act(message.text) == "unavailable" or
-                (act(message.text) == "cancel" and data.get("reason") == "no_availability")) and requested:
-            contacted = {row.recipient for row in history
-                         if row.sender == city.agent_id and act(row.text) == "need.request"}
+        head = act(message.text)
+        if (head == "unavailable" or (head == "cancel" and data.get("reason") == "no_availability")) and requested:
+            contacted = requests.keys()
             unavailable = {row.sender for row in history
                            if row.sender in contacted and (
                                act(row.text) == "unavailable" or
                                (act(row.text) == "cancel" and fields(row.text).get("reason") == "no_availability")
                            )}
-            if contacted and contacted <= unavailable and not sent(history, city.agent_id, citizen, "Le strutture contattate non hanno trovato") and not any(
-                row.sender in contacted and act(row.text) == "offer" for row in history
-            ):
+            prefs = await citizen_preferences(city, history, citizen)
+            if contacted <= unavailable and not matching_partner_offers(history, city.agent_id, citizen, prefs):
                 await language_fallback(city, message.need_id, history, citizen)
-            return
-        if kind in {"booking.receipt", "cancel"} and confirmed:
+                return
+        if head in {"booking.receipt", "cancel"} and confirmed:
             forwarded = await relay_facility_reply(city, message.need_id, history, citizen, message)
-            if forwarded and kind == "cancel":
+            if forwarded and head == "cancel":
                 slot = data.get("slot_id") or confirmed_slot(history, city.agent_id, message.sender)
                 await rebook(city, message.need_id, citizen, frozenset({slot} if slot else set()))
-        elif kind == "offer" and requested:
-            # The remote facility's claim is not a Ledger-verified local slot. Ask for
-            # consent first; never treat a peer's text as authority to disclose data.
-            if not asked_consent(history, city.agent_id, citizen, "cross_asst"):
+        elif requested and not asked_consent(history, city.agent_id, citizen, "cross_asst"):
+            prefs = await citizen_preferences(city, history, citizen)
+            if matching_partner_offers(history, city.agent_id, citizen, prefs):
                 await send(city, citizen, "data.request purpose=cross_asst fields=consent_ref " + (
                     "I found a possible slot at a partner facility of another ASST. May I share the data needed to check it and book it?"
                     if writes_english(history, citizen) else
