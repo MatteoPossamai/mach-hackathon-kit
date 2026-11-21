@@ -902,6 +902,63 @@ class CrossAsstConsentTest(unittest.TestCase):
         self.assertEqual(booking.cross_consent([cross, local, reply], me, 'citizen:1'), '')
 
 
+class SlowLedgerTest(unittest.TestCase):
+    """A Ledger that stays silent for a while must delay the booking, never stop it (-1 no_booking)."""
+
+    STALL_TEXTS = ('lento', 'riscriva', 'still checking', 'not answering', 'Write to me again')
+
+    def setUp(self):
+        booking.RELAYED.clear()
+        self.saved = (booking.bc_flow.LEDGER_WAIT, booking.bc_common.LEDGER_BACKOFF, booking.bc_common.LEDGER_PATIENCE)
+        booking.bc_flow.LEDGER_WAIT = 0.05
+        booking.bc_common.LEDGER_BACKOFF = (0.0, 0.01)
+        booking.bc_common.LEDGER_PATIENCE = 5.0
+
+    def tearDown(self):
+        booking.bc_flow.LEDGER_WAIT, booking.bc_common.LEDGER_BACKOFF, booking.bc_common.LEDGER_PATIENCE = self.saved
+
+    def silent_city(self, silent):
+        class SilentLedger(JourneyCity):
+            def __init__(self):
+                super().__init__()
+                self.asked = {}
+            async def find(self, query):
+                return []
+            async def say(self, to, text):
+                head = booking.act(text)
+                if to == 'city:ledger':
+                    self.asked[head] = self.asked.get(head, 0) + 1
+                    if self.asked[head] <= silent.get(head, 0):
+                        self.out.append((to, text))
+                        self.rows.append(msg(self.agent_id, text, to, f'out-{len(self.rows)}'))
+                        return
+                await super().say(to, text)
+        return SilentLedger()
+
+    def test_silent_world_still_ends_in_a_booking(self):
+        async def run():
+            city = self.silent_city({'prescription': 6, 'agenda': 2, 'world': 5})
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            to_citizen = [text for to, text in city.out if to == 'citizen:1']
+            self.assertFalse([t for t in to_citizen if any(s in t for s in self.STALL_TEXTS)], to_citizen)
+            offer = next(t for t in to_citizen if t.startswith('offer ') and 'waiting_list=true' not in t)
+            self.assertIn('slot_id=s1', offer)
+            await city.receive('citizen:1', f"confirm offer_id={booking.fields(offer)['offer_id']} consent_ref=c1")
+            await city.receive('agent:team/h', 'booking.receipt booking_id=b1 ledger_ref=r1')
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('booking.receipt booking_id=b1') for to, t in city.out))
+        asyncio.run(run())
+
+    def test_world_silent_past_patience_goes_to_partners_not_a_stall(self):
+        async def run():
+            booking.bc_common.LEDGER_PATIENCE = 0.3
+            city = self.silent_city({'world': 10_000})
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            to_citizen = [text for to, text in city.out if to == 'citizen:1']
+            self.assertFalse([t for t in to_citizen if any(s in t for s in self.STALL_TEXTS)], to_citizen)
+            self.assertGreater(city.asked['world'], 2)
+        asyncio.run(run())
+
+
 class ReadWorldTest(unittest.TestCase):
     def test_retries_only_missing_pages_and_deduplicates_slots(self):
         orig_wait = booking.bc_flow.LEDGER_WAIT

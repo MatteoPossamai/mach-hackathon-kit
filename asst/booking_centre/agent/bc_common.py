@@ -143,6 +143,22 @@ async def wait_for(city: City, need_id: str, predicate, seconds: float = 6.0) ->
         await asyncio.sleep(0.25)
 
 
+# A silent Ledger is load, not an answer: S counts every slot, so giving up costs -1 no_booking.
+# Keep asking for up to LEDGER_PATIENCE seconds, with a growing pause so we do not add to the load.
+LEDGER_PATIENCE = 300.0
+LEDGER_BACKOFF = (0.0, 3.0, 6.0, 12.0, 20.0, 30.0)
+
+
+async def ledger_pause(attempt: int, started: float) -> bool:
+    """Wait before Ledger retry number ``attempt``; False once the patience budget is spent."""
+    loop = asyncio.get_running_loop()
+    pause = LEDGER_BACKOFF[min(attempt, len(LEDGER_BACKOFF) - 1)]
+    if loop.time() + pause - started > LEDGER_PATIENCE:
+        return False
+    await asyncio.sleep(pause)
+    return True
+
+
 def ledger_reply(history: list, head: str, match: tuple[str, str] | None = None):
     for row in reversed(history):
         if row.sender == LEDGER and act(row.text) == head:

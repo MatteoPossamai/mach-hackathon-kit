@@ -74,11 +74,11 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         # Our guess from the case code did not match a prescription: only now ask the citizen.
         await ask_number(city, citizen, english)
         return
-    for _ in range(3):
-        if rx and agenda:
-            break
-        # The Ledger can lag behind the GP by a few seconds: ask again ourselves, never hand
-        # the retry to the citizen (a simulated citizen does not "try again shortly").
+    started, attempt = asyncio.get_running_loop().time(), 0
+    while not (rx and agenda) and await ledger_pause(attempt, started):
+        attempt += 1
+        # The Ledger can lag behind the GP, or for minutes under load: ask again ourselves,
+        # never hand the retry to the citizen (a simulated citizen does not "try again shortly").
         if not rx:
             await send(city, LEDGER, f"prescription prescription_number={number}")
         if not agenda:
@@ -129,16 +129,13 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         prefs = {key: value for key, value in prefs.items() if key != "lang"}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
     items, doctors, history, complete = await read_world(city, need_id, history, procedure)
-    if not items and not complete:
-        # An empty read is a slow Ledger, not an empty city: S counts every slot, so a waiting
-        # list here costs -1. Read once more, then say we are still checking (never "no slots").
-        await asyncio.sleep(8.0)
+    # An empty read is a slow Ledger, not an empty city: S counts every slot, so a waiting list
+    # here costs -1. Keep reading until the slots arrive; late pages land in history and count.
+    started, attempt = asyncio.get_running_loop().time(), 0
+    while not items and not complete and await ledger_pause(attempt, started):
+        attempt += 1
         items, doctors, history, complete = await read_world(city, need_id, history, procedure)
-    if not items and not complete:
-        await send(city, citizen, "The registry is slow right now: I am still checking the slots and will write to you as soon as I have them."
-                   if english else
-                   "Il registro in questo momento è lento: sto ancora verificando i posti e le scrivo appena li ho.")
-        return
+    # Still silent after the whole budget: the partner ring below is the only way left to a booking.
     # Do not reoffer a slot that the responsible facility cancelled in this case.
     previous_offers = offers(history, city.agent_id, citizen)
     cancelled = set()
