@@ -105,13 +105,14 @@ async def _on_agent_availability_request(
             )
             for slot in selected
         ]
+        lines = [line + " lease_s=120 mach=1.3" for line in lines]  # MACH-1.3
         if await _say(city, message.sender, "\n".join(lines)):
             for slot in selected:
                 cache.add(slot["slot_id"])
         return
 
     if not cache:
-        parts = ["cancel"]
+        parts = ["cancel", "mach=1.3"]
         if request_id:
             parts.append(f"request_id={request_id}")
         parts.append("reason=no_availability")

@@ -207,7 +207,7 @@ async def on_agent_availability_request(
     gender = g_raw if g_raw in {"m", "f"} else nl_gender
     days_raw = fields.get("days") or fields.get("day") or ""
     days = {s.normalize_day(d) for d in re.split(r"[/,|]", days_raw) if d.strip()} or nl_days
-    after = c.parse_when(fields.get("after", ""))
+    after = c.parse_when(fields.get("after", "") or fields.get("earliest", ""))  # MACH-1.3 R4
     before = c.parse_when(fields.get("before", ""))
     deadline = c.parse_when(fields.get("deadline", ""))
 
@@ -232,6 +232,7 @@ async def on_agent_availability_request(
             s.offer_line(sl, agent_id=city.agent_id, priority=priority, request_id=request_id or None, for_partner=True)
             for sl in chosen
         ]
+        lines = [line + " lease_s=120 mach=1.3" for line in lines]  # MACH-1.3
         reply = "\n".join(lines)
         if await c.say(city, message.sender, reply):
             s.soft_lock_slots([sl["slot_id"] for sl in chosen], request_id or key)
@@ -247,6 +248,7 @@ async def on_agent_availability_request(
     cancel_parts = ["cancel", "reason=no_availability"]
     if request_id:
         cancel_parts.append(f"request_id={request_id}")
+    cancel_parts.append("mach=1.3")
     lines = [" ".join(cancel_parts)]
     for sl in rel_slots[:3]:
         lines.append(
