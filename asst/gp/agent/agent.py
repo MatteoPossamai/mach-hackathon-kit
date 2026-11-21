@@ -1627,3 +1627,21 @@ def _rx_note(
     return (note + " Se nella nostra ASST non c'è un orario adatto, il centro prenotazioni chiede "
             "anche alle strutture partner di altre ASST, sempre con il suo permesso prima; se una "
             "struttura salta, le trova un nuovo orario entro la stessa scadenza.")
+
+
+# --- collaboration: hand the issued prescription to our booking centre -------------------
+# The booking centre ignores a hand-off as a request and only acknowledges it, so this is a
+# real agent-to-agent exchange that never writes to the citizen. No citizen data travels.
+
+_announce_plain = _announce
+
+
+async def _announce(city: City, message: Message, chat: list[Message], agent: str, *, repeat: bool = False) -> None:
+    await _announce_plain(city, message, chat, agent, repeat=repeat)
+    if message.sender != LEDGER or first_word(message.text) != "prescribed" or repeat:
+        return
+    ours = _our_rx(chat, agent)
+    number = fields_of(message.text).get("prescription_number", "")
+    if not number or number != ours.get("prescription_number"):
+        return
+    await _handoff(city, chat, number, ours.get("procedure", ""), ours.get("priority", ""))

@@ -31,6 +31,7 @@ import bc_choice  # noqa: F401
 
 LOCKS: dict[str, asyncio.Lock] = {}
 NOTICE_ACTS = frozenset({"handoff", "booking.notice", "ack"})
+GP_AGENT = "agent:c2ewegr2ea3v"
 
 
 async def main(need: Need, city: City) -> None:
@@ -47,6 +48,13 @@ async def main(need: Need, city: City) -> None:
     if incoming.sender.startswith("agent:") and act(incoming.text) in NOTICE_ACTS:
         # A GP hand-off or a facility notice is not a citizen request: never write to the
         # citizen because of it (it used to send "no availability" before they even wrote).
+        if incoming.sender == GP_AGENT and act(incoming.text) == "handoff":
+            # Answer our GP at once (collaboration, fast reply); no citizen data travels.
+            number = fields(incoming.text).get("prescription_number", "")
+            if number and TOKEN.fullmatch(number):
+                await send(city, incoming.sender, f"ack prescription_number={number} "
+                           "Ricevuto: appena il paziente scrive verifico la ricetta sul registro e "
+                           "cerco gli orari, anche nelle strutture partner di altre ASST se serve.")
         return
     key = incoming.need_id
     lock = LOCKS.setdefault(key, asyncio.Lock())

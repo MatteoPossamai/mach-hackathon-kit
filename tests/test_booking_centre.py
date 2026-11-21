@@ -667,7 +667,9 @@ class NoticeTest(unittest.TestCase):
         city = FakeCity(rows)
         city.inbound = rows[-1]
         asyncio.run(booking.main(SimpleNamespace(is_emergency=False), city))
-        self.assertEqual(city.out, [])
+        self.assertFalse(any(to.startswith('citizen:') for to, _ in city.out))
+        self.assertEqual([text.split()[0] for to, text in city.out if to == 'agent:c2ewegr2ea3v'], ['ack'])
+        self.assertFalse(any(text.split()[0] != 'ack' or len(text.split('=')) > 2 for _, text in city.out))
 
 
 class ConcurrencyTest(unittest.TestCase):
