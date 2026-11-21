@@ -63,10 +63,22 @@ class BookingImprovementsTest(unittest.TestCase):
 
 
 class BookingTest(unittest.TestCase):
-    def test_priority_windows_count_agenda_days_across_the_weekend(self):
+    def test_non_urgent_slots_leave_time_for_the_citizen_to_answer(self):
+        """Offer -> choice -> hold took 2-3 real minutes = 2-3 agenda hours: closer slots came back reason=past."""
+        monday = datetime(2026, 12, 21, 9, 0, tzinfo=timezone.utc)
+        slot = dict(slot_id='s1', doctor_id='doctor-h1', facility='agent:t/h', procedure='VIS-FIS')
+        near = {**slot, 'at': '2026-12-21T12:00:00+00:00'}
+        later = {**slot, 'at': '2026-12-21T14:30:00+00:00'}
+        self.assertFalse(booking.valid_slot(near, 'VIS-FIS', 'D', monday, {}))
+        self.assertTrue(booking.valid_slot(later, 'VIS-FIS', 'D', monday, {}))
+        self.assertTrue(booking.valid_slot(near, 'VIS-FIS', 'U', monday, {}))
+
+    def test_priority_windows_are_calendar_days_like_the_judge(self):
+        """Kit reference (templates/examples/agent.py:361) and the judge: now + timedelta(days=N).
+        On a Friday a B deadline ends on Sunday, so Monday slots are 'reason=deadline' (14 journeys)."""
         friday = datetime(2026, 11, 20, 10, tzinfo=timezone.utc)
         slot = dict(slot_id='s1', doctor_id='doctor-h1', facility='agent:t/h', procedure='VIS-FIS')
-        for priority, cutoff_date in [('B', '2026-11-24'), ('D', '2026-11-27')]:
+        for priority, cutoff_date in [('B', '2026-11-22'), ('D', '2026-11-25')]:
             with self.subTest(priority=priority):
                 at_cutoff = {**slot, 'at': f'{cutoff_date}T10:00:00+00:00'}
                 after_cutoff = {**slot, 'at': f'{cutoff_date}T10:01:00+00:00'}
@@ -240,7 +252,7 @@ class JourneyTest(unittest.TestCase):
             self.assertNotIn('citizen:1', search)
             self.assertNotIn('rx1', search)
             self.assertIn('lang=en days=fri', search)
-            common = (f'facility={PRECOTTO_HOSPITAL} procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 '
+            common = (f'facility={PRECOTTO_HOSPITAL} procedure=VIS-FIS agenda_date=2026-11-20T13:00:00+00:00 '
                       f'request_id={request_id}')
             await city.receive(PRECOTTO_HOSPITAL,
                                f'offer offer_id=partner1 slot_id=s2 doctor_id=asst-precotto-h2 doctor_lang=it {common}\n'
@@ -402,7 +414,7 @@ class RebookTest(unittest.TestCase):
                             'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-17T12:00:00+00:00 day=tue\n'
                             'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-18T08:00:00+00:00 day=wed\n'
                             'slot_id=s3 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-18T10:00:00+00:00 day=wed\n'
-                            'slot_id=s4 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-16T10:00:00+00:00 day=mon',
+                            'slot_id=s4 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-16T12:30:00+00:00 day=mon',
                             self.agent_id, f'w-{len(self.rows)}')
                     if to == 'agent:team/h' and text.startswith('confirm ') and 'slot_id=s1' in text:
                         self.agenda = '2026-11-16T12:00:00+00:00'
@@ -427,19 +439,19 @@ class RebookTest(unittest.TestCase):
                                 and 'slot_id=s2' in text for to, text in city.out))
         asyncio.run(run())
 
-    def test_partner_offers_keep_the_original_deadline_across_a_weekend(self):
+    def test_partner_offers_keep_the_original_deadline(self):
         me = FakeCity.agent_id
         partner = PRECOTTO_HOSPITAL
         rows = [
             msg(me, 'prescription prescription_number=rx1', 'city:ledger'),
-            msg('city:ledger', 'agenda agenda_now=2026-11-20T08:00:00+00:00'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-18T08:00:00+00:00'),
             msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B'),
-            msg('city:ledger', 'agenda agenda_now=2026-11-23T12:00:00+00:00'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-19T12:00:00+00:00'),
             msg(me, 'need.request procedure=VIS-FIS priority=B request_id=req1', partner),
             msg(partner, f'offer offer_id=early slot_id=partner-early doctor_id=h1 facility={partner} '
-                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-24T08:00:00+00:00\n'
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-20T08:00:00+00:00\n'
                 f'offer offer_id=late slot_id=partner-late doctor_id=h1 facility={partner} '
-                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-24T10:00:00+00:00'),
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-20T10:00:00+00:00'),
         ]
         city = FakeCity(rows)
         asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
@@ -462,7 +474,7 @@ class LateConfirmTest(unittest.TestCase):
                     await super().say(to, text)
                     if to == 'city:ledger' and text.startswith('world '):
                         self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
-                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-20T12:00:00+00:00 day=fri\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-20T12:30:00+00:00 day=fri\n'
                             'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T14:30:00+00:00 day=sat',
                             self.agent_id, f'w-{len(self.rows)}')
                     if self.late and to == 'city:ledger' and text == 'agenda':
@@ -607,7 +619,7 @@ class RingFixTest(unittest.TestCase):
             self.assertEqual(criteria['lang'], 'ro')
             self.assertEqual(criteria['gender_preference'], 'f')
             self.assertEqual(criteria['days'], 'tue')
-            self.assertEqual(criteria['deadline'], '2026-11-24T10:00:00')
+            self.assertEqual(criteria['deadline'], '2026-11-22T10:00:00')
             self.assertNotIn('prescription_number', criteria)
             self.assertNotIn('citizen', criteria)
 
@@ -1007,6 +1019,28 @@ class SlowLedgerTest(unittest.TestCase):
             to_citizen = [t for to, t in city.out if to == 'citizen:1']
             self.assertEqual(to_citizen[0], booking.bc_flow.ACK_IT)
             self.assertTrue(any(t.startswith('offer ') for t in to_citizen))
+        asyncio.run(run())
+
+    def test_redelivered_request_does_not_send_the_same_offers_again(self):
+        """Journey 3450004: the same offers went out 3 times (09:26:18/:21/:28), then 18 cancels came back."""
+        async def run():
+            city = self.silent_city({})
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=it')
+            await booking.main(SimpleNamespace(), city)  # the same inbound again (redelivery / other pod)
+            offers = [t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ')]
+            self.assertEqual(len(offers), 1, offers)
+        asyncio.run(run())
+
+    def test_no_thank_you_note_when_another_agent_triggers_the_search(self):
+        """A partner or facility message must not make us thank the citizen 'for writing' (journey 2110007)."""
+        async def run():
+            city = self.silent_city({})
+            city.rows.append(msg('citizen:1', 'need.request prescription_number=rx1 lang=it', 'agent:team/booking', 'c1'))
+            city.rows.append(msg(city.agent_id, 'offer offer_id=o0 slot_id=s0', 'citizen:1', 'o0'))
+            city.inbound = msg('agent:team/h', 'cancel offer_id=o0 reason=slot_taken', city.agent_id, 'h1')
+            city.rows.append(city.inbound)
+            await booking.bc_flow.search(city, 'case-1', list(city.rows), 'citizen:1', 'rx1')
+            self.assertNotIn(booking.bc_flow.ACK_IT, [t for to, t in city.out if to == 'citizen:1'])
         asyncio.run(run())
 
     def test_world_silent_past_patience_goes_to_partners_not_a_stall(self):

@@ -732,7 +732,12 @@ async def _announce(city: City, message: Message, chat: list[Message], agent: st
         return
     ours = _our_rx(chat, agent)
     if head == "refused" and "prescribe" in words(message.text) and ours.get("patient"):
-        await _say(city, ours["patient"], "Il registro non ha confermato la ricetta. Ci contatti per assistenza.")
+        # A retried prescribe is refused once the first one went through: if the citizen
+        # already has the prescription, that refusal is noise, not a failure to report.
+        sent = ours.get("prescription_number") and _we(
+            chat, agent, f"prescription_number={ours['prescription_number']}", to=ours["patient"], word="prescription")
+        if not sent:
+            await _say(city, ours["patient"], "Il registro non ha confermato la ricetta. Ci contatti per assistenza.")
         return
     if not confirmation(message, ours):
         return
