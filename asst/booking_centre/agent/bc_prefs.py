@@ -112,13 +112,33 @@ def writes_english(history: list, citizen: str) -> bool:
     return sum(w in EN_WORDS for w in words) >= 3 and sum(w in IT_WORDS for w in words) < 2
 
 
+VAGUE_DAYS = re.compile(
+    r"\b(?:"
+    r"(?:solo\s+)?(?:certi|alcuni|determinati|pochi)\s+giorni"
+    r"|giorni\s+(?:specifici|precisi|limitati|particolari)"
+    r"|non\s+(?:tutti\s+i\s+giorni|posso\s+tutti\s+i\s+giorni)"
+    r"|disponibilit[àa]\s+(?:limitata|ristretta)"
+    r"|(?:only\s+)?(?:certain|some|specific|particular|a\s+few)\s+days"
+    r"|not\s+(?:every|all)\s+days?"
+    r"|limited\s+(?:days|availability)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def has_vague_days(history: list, citizen: str) -> bool:
+    """True when the citizen mentions day restrictions without naming specific days."""
+    text = " ".join(row.text for row in history if row.sender == citizen and row.text)
+    return bool(VAGUE_DAYS.search(text))
+
+
 def preferences(history: list, citizen: str) -> dict[str, str]:
     result = {}
     for row in history:
         if row.sender == citizen:
             for key, value in fields(row.text).items():
                 if key in {"lang", "days", "gender", "gender_preference"}:
-                    result[key] = value
+                    result[key] = value.replace(",", "/") if key == "days" else value
     return result
 
 

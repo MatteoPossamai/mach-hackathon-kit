@@ -737,3 +737,40 @@ class ReadWorldTest(unittest.TestCase):
             self.assertEqual(city.page_calls.count('3'), 2)
         finally:
             booking.bc_flow.LEDGER_WAIT = orig_wait
+
+
+class VagueDaysTest(unittest.TestCase):
+    def setUp(self):
+        booking.RELAYED.clear()
+        booking.bc_prefs._PREFS_CACHE.clear()
+
+    def test_vague_days_asks_once_then_proceeds_with_answer_or_refusal(self):
+        async def run():
+            class DaysCity(JourneyCity):
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('world '):
+                        self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T10:30:00+00:00 day=mon free=1\n'
+                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=wed free=1',
+                            self.agent_id, f'w-{len(self.rows)}')
+            city = DaysCity()
+            await city.receive('citizen:1', 'Posso solo in certi giorni. need.request prescription_number=rx1')
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('data.request purpose=booking fields=days') for to, t in city.out))
+            self.assertFalse(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
+            await city.receive('citizen:1', 'data.response days=wed')
+            offers_out = [t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ')]
+            self.assertEqual(len(offers_out), 1)
+            self.assertIn('slot_id=s2', offers_out[0])
+            self.assertNotIn('slot_id=s1', offers_out[0])
+        asyncio.run(run())
+
+    def test_vague_days_refusal_proceeds_without_looping(self):
+        async def run():
+            city = JourneyCity()
+            await city.receive('citizen:1', 'I can only come on certain days. need.request prescription_number=rx1 lang=en')
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('data.request purpose=booking fields=days') for to, t in city.out))
+            await city.receive('citizen:1', 'Actually any day is fine.')
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
+            self.assertEqual(sum(1 for to, t in city.out if to == 'citizen:1' and t.startswith('data.request purpose=booking fields=days')), 1)
+        asyncio.run(run())

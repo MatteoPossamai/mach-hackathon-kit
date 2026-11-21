@@ -92,6 +92,14 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
                       else "Per questa priorità è disponibile la lista d'attesa."))
         return
     prefs = await prefs_task
+    if (not relax_lang and not prefs.get("days") and has_vague_days(history, citizen)
+            and not sent(history, city.agent_id, citizen, "data.request purpose=booking fields=days")
+            and not offers(history, city.agent_id, citizen)):
+        await send(city, citizen, "data.request purpose=booking fields=days " + (
+            "Which days of the week are you available? Tell me the days (for example Monday, Wednesday) and I will find the best slots for you."
+            if english else
+            "In quali giorni della settimana è disponibile? Mi indichi i giorni (ad esempio lunedì, mercoledì) e cerco subito i posti migliori per lei."))
+        return
     if relax_lang:
         # Nobody speaks the language within the deadline, here or on the ring: a valid slot
         # with another doctor is better than no slot at all.

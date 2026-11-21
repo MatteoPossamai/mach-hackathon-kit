@@ -216,8 +216,7 @@ async def handle(city: City, message) -> None:
             # The number written in free text, e.g. "la ricetta è prescription_number-N-...".
             number = rx_from_text(history, citizen, message.text)
         if not number and kind == "data.response":
-            number = next((fields(row.text).get("prescription_number", "") for row in reversed(history)
-                           if row.sender == citizen and fields(row.text).get("prescription_number")), "")
+            number = case_number(history, citizen)
         if number and TOKEN.fullmatch(number):
             await search(city, message.need_id, history, citizen, number)
         elif kind not in {"consent", "data.response"}:
