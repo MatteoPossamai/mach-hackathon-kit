@@ -132,7 +132,8 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     items = [enrich(item, doctors) for item in items
              if item.get("slot_id") not in exclude and item.get("facility") not in exclude
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
-    candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
+    priority_start = booking_agenda_start(history, city.agent_id, number, now)
+    candidates, relaxed = choose_slots(items, procedure, priority, now, prefs, priority_start=priority_start)
     candidates = spread(candidates, need_id)
     if not candidates:
         if relax_lang:
@@ -225,6 +226,7 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
     if not now or not number or prescription.get("state") != "issued":
         return
+    priority_start = booking_agenda_start(history, city.agent_id, number, now)
     candidates = []
     prefs = await citizen_preferences(city, history, citizen)
     cancelled = set()
@@ -260,7 +262,8 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
                 item["day"] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[at.weekday()]
             if prefs.get("lang") and prefs["lang"] != "it" and not item.get("languages"):
                 continue  # never trust that a partner applied our language filter
-            if valid_slot(item, procedure, priority, now, prefs, assume_known=False):
+            if valid_slot(item, procedure, priority, now, prefs, assume_known=False,
+                          priority_start=priority_start):
                 candidates.append(item)
     english = writes_english(history, citizen)
     lines = []

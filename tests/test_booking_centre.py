@@ -350,29 +350,65 @@ class RebookTest(unittest.TestCase):
         booking.RELAYED.clear()
         booking.REBOOKS.clear()
 
-    def test_facility_cancel_brings_new_offers_without_the_lost_slot(self):
+    def test_facility_cancel_rebooks_within_the_original_deadline(self):
         async def run():
-            class TwoSlots(JourneyCity):
+            class MovingAgenda(JourneyCity):
+                agenda = '2026-11-16T08:00:00+00:00'
+
                 async def say(self, to, text):
                     await super().say(to, text)
+                    if to == 'city:ledger' and text == 'agenda':
+                        self.rows[-1] = msg('city:ledger', f'agenda agenda_now={self.agenda}',
+                                            self.agent_id, f'agenda-{len(self.rows)}')
                     if to == 'city:ledger' and text.startswith('world '):
                         self.rows[-1] = msg('city:ledger', 'slots page=1/1\n'
-                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat\n'
-                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T14:30:00+00:00 day=sat',
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-17T12:00:00+00:00 day=tue\n'
+                            'slot_id=s2 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-18T08:00:00+00:00 day=wed\n'
+                            'slot_id=s3 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-18T10:00:00+00:00 day=wed\n'
+                            'slot_id=s4 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-16T10:00:00+00:00 day=mon',
                             self.agent_id, f'w-{len(self.rows)}')
                     if to == 'agent:team/h' and text.startswith('confirm ') and 'slot_id=s1' in text:
+                        self.agenda = '2026-11-16T12:00:00+00:00'
                         self.rows.append(msg('agent:team/h', f"cancel {text.split()[1]} reason=slot_taken", self.agent_id, f'c-{len(self.rows)}'))
-            city = TwoSlots()
+            city = MovingAgenda()
             await city.receive('citizen:1', 'need.request prescription_number=rx1')
             first = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer '))
+            self.assertIn('slot_id=s4', first)
             o1 = next(l for l in first.splitlines() if 'slot_id=s1' in l)
-            await city.receive('citizen:1', f"confirm {booking.fields(o1)['offer_id'] and 'offer_id=' + booking.fields(o1)['offer_id']} consent_ref=c1")
+            await city.receive('citizen:1', f"confirm offer_id={booking.fields(o1)['offer_id']} consent_ref=c1")
             self.assertTrue(any(to == 'citizen:1' and t.startswith('cancel ') for to, t in city.out))
             again = [t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ')]
             self.assertEqual(len(again), 2)
             self.assertNotIn('slot_id=s1', again[1])
-            self.assertIn('slot_id=s2', again[1])
+            self.assertNotIn('slot_id=s3', again[1])
+            self.assertNotIn('slot_id=s4', again[1])
+            replacement = next(line for line in again[1].splitlines() if 'slot_id=s2' in line)
+            offer_id = booking.fields(replacement)['offer_id']
+            await city.receive('citizen:1', f'confirm offer_id={offer_id} consent_ref=c1')
+            await city.receive('agent:team/h', f'booking.receipt booking_id=rebook-1 ledger_ref=r1 offer_id={offer_id}')
+            self.assertTrue(any(to == 'citizen:1' and text.startswith('booking.receipt booking_id=rebook-1 ')
+                                and 'slot_id=s2' in text for to, text in city.out))
         asyncio.run(run())
+
+    def test_partner_offers_keep_the_original_deadline(self):
+        me = FakeCity.agent_id
+        partner = 'agent:partner/h'
+        rows = [
+            msg(me, 'prescription prescription_number=rx1', 'city:ledger'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-16T08:00:00+00:00'),
+            msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B'),
+            msg('city:ledger', 'agenda agenda_now=2026-11-16T12:00:00+00:00'),
+            msg(me, 'need.request procedure=VIS-FIS priority=B request_id=req1', partner),
+            msg(partner, f'offer offer_id=early slot_id=partner-early doctor_id=h1 facility={partner} '
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-18T08:00:00+00:00\n'
+                f'offer offer_id=late slot_id=partner-late doctor_id=h1 facility={partner} '
+                'procedure=VIS-FIS request_id=req1 agenda_date=2026-11-18T10:00:00+00:00'),
+        ]
+        city = FakeCity(rows)
+        asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
+        offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
+        self.assertIn('slot_id=partner-early', offer)
+        self.assertNotIn('slot_id=partner-late', offer)
 
 
 

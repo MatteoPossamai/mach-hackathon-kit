@@ -51,8 +51,23 @@ DOCTORS = {"h1": ("it/en", "f"), "h2": ("it", "m"),
            "s2": ("it", "f"), "c1": ("it/en", "f")}
 
 
+def booking_agenda_start(history: list, agent: str, number: str, now: datetime) -> datetime:
+    """Recover the first booking search's Ledger clock for this prescription."""
+
+    started = False
+    for row in history:
+        if row.sender == agent and row.recipient == LEDGER and act(row.text) == "prescription":
+            started = started or fields(row.text).get("prescription_number") == number
+        if started and row.sender == LEDGER and row.recipient == agent and act(row.text) == "agenda":
+            agenda = time(fields(row.text).get("agenda_now", ""))
+            if agenda and agenda.tzinfo is not None:
+                return agenda
+    return now
+
+
 def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetime,
-               prefs: dict[str, str], assume_known: bool = True) -> bool:
+               prefs: dict[str, str], assume_known: bool = True, *,
+               priority_start: datetime | None = None) -> bool:
     at = time(item.get("at", item.get("agenda_date", "")))
     if not all(item.get(k) for k in ("slot_id", "doctor_id", "facility")) or not at:
         return False
@@ -60,9 +75,10 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
         return False
     if at <= now + timedelta(hours=1):
         return False
-    if priority == "U" and at.date() != now.date():
+    start = priority_start or now
+    if priority == "U" and at.date() != start.date():
         return False
-    if priority in {"B", "D"} and at > now + timedelta(days={"B": 2, "D": 5}[priority]):
+    if priority in {"B", "D"} and at > start + timedelta(days={"B": 2, "D": 5}[priority]):
         return False
     if item.get("free", "1").isdigit() and int(item.get("free", "1")) < 1:
         return False
@@ -136,15 +152,17 @@ def pick_offers(candidates: list, number: str, priority: str, budget: int) -> li
 
 
 def choose_slots(items: list, procedure: str, priority: str, now: datetime,
-                 prefs: dict[str, str]) -> tuple[list, bool]:
+                 prefs: dict[str, str], *, priority_start: datetime | None = None) -> tuple[list, bool]:
     """Slots that meet every preference; if none, relax only the soft ones (gender, days).
 
     Language stays a hard need. Returns (slots, relaxed).
     """
 
-    strict = [item for item in items if valid_slot(item, procedure, priority, now, prefs)]
+    strict = [item for item in items if valid_slot(item, procedure, priority, now, prefs,
+                                                   priority_start=priority_start)]
     if strict or not any(prefs.get(key) for key in SOFT_PREFS):
         return strict, False
     hard = {key: value for key, value in prefs.items() if key not in SOFT_PREFS}
-    relaxed = [item for item in items if valid_slot(item, procedure, priority, now, hard)]
+    relaxed = [item for item in items if valid_slot(item, procedure, priority, now, hard,
+                                                    priority_start=priority_start)]
     return relaxed, bool(relaxed)
