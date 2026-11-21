@@ -91,6 +91,31 @@ class HospitalTest(unittest.TestCase):
         self.assertFalse(any('reason=slot_unavailable' in text for _, text in city.out), city.out)
         self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
         self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out))
+    def test_untargeted_typed_request_ends_without_a_relay_read(self):
+        """Deploy conformance custody.ack (12:27, 12:32, 12:58): the probe need.request for
+        service=lab got no reply anyway, but its one history read on a loaded relay took > 5 s,
+        so the lease renew came too late. A typed request for a service we do not run ends now."""
+        from city_sdk.city import Message, Need
+        reads = []
+        class Probe(City):
+            async def history(self, **kwargs):
+                reads.append(1)
+                return list(self.rows)
+        probe = Message(type='need.request', sender='agent:t05/osp-x', recipient='agent:team/hospital',
+                        msg_id='p1', need_id='N-P', body={'service': 'lab', 'summary': 'visit', 'district': 8})
+        city = Probe([probe]); city.inbound = probe
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital.main(Need(service='lab', summary='visit', district=8, message=probe), city))
+        self.assertEqual(reads, [])
+        ring = Message(type='need.request', sender='agent:t05/osp-x', recipient='agent:team/hospital',
+                       msg_id='p2', need_id='N-R', body={'procedure': 'VIS-FIS', 'priority': 'B', 'request_id': 'r1'})
+        city = Probe([ring]); city.inbound = ring
+        with patch.dict(os.environ, {'CITY_ROLE': 'hospital'}):
+            asyncio.run(hospital.main(Need(service='hospital.physiatry', summary='', message=ring), city))
+        self.assertTrue(reads)
+        # The body is a mappingproxy: an isinstance(dict) check read it as empty and refused the
+        # typed VIS-FIS request of another booking centre with "Qui solo visite fisiatriche".
+        self.assertFalse(any('Qui solo visite fisiatriche' in text for _, text in city.out), city.out)
     def test_confirm_for_a_recently_seen_own_slot_holds_without_rereading_the_world(self):
         """Journey 2920005: 12 minutes between the confirm and facility_cancelled, spent re-reading
         up to 8 world pages from a slow Ledger. Our slots were read seconds before for the ring."""

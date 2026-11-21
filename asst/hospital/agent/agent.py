@@ -181,6 +181,10 @@ async def main(need: Need, city: City) -> None:
         return
     if message.sender.startswith("citizen:") and clinical(text):
         raise OutOfScope()
+    if _untargeted_typed_request(message, need):
+        # No reply was ever sent to these; skipping the history read keeps the turn instant
+        # (deploy custody.ack failed 3 times: one slow relay read > 5 s delayed the lease renew).
+        return
     key = message.need_id or message.msg_id
     lock = _HOSPITAL_LOCKS.setdefault(key, asyncio.Lock())
     async with lock:
@@ -190,6 +194,18 @@ async def main(need: Need, city: City) -> None:
         finally:
             if not getattr(lock, "_waiters", None):
                 _HOSPITAL_LOCKS.pop(key, None)
+
+
+def _untargeted_typed_request(message: Message, need: Need) -> bool:
+    """A typed need.request from an agent, with no text, for a service this hospital does not run."""
+    if not message.sender.startswith("agent:") or (message.text or "").strip():
+        return False
+    if message.type != "need.request" or not hasattr(message.body, "get"):  # a mappingproxy, not a dict
+        return False
+    body = message.body
+    named = " ".join(str(body.get(key) or "") for key in ("procedure", "service_type", "service", "summary"))
+    named = (named + " " + str(getattr(need, "service", "") or "")).lower()
+    return not any(word in named for word in _PHYSIATRY_WORDS)
 
 
 def _asks_address(message: Message) -> bool:
@@ -1240,7 +1256,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     agent = city.agent_id
     peer = message.sender
     data = fields_of(message.text)
-    body = message.body if message.type != "chat" and isinstance(message.body, dict) else {}
+    body = dict(message.body) if message.type != "chat" and hasattr(message.body, "get") else {}  # a mappingproxy, not a dict
     procedure = data.get("procedure") or data.get("service_type") or str(
         body.get("procedure") or body.get("service_type") or ""
     )
