@@ -92,7 +92,8 @@ async def follow_up(city: City, need_id: str, history: list, citizen: str) -> No
         await send(city, citizen, recap_note(booking_id, offer, english))
         return
     message = city.inbound
-    if message is not None and latest_offers(history, city.agent_id, citizen):
+    refusing = message is not None and "cancel" in message.text.replace(",", " ").split()
+    if message is not None and not refusing and latest_offers(history, city.agent_id, citizen):
         selected = await resolve_choice(city, history, citizen, message.text, use_llm=False)
         if selected and selected.get("slot_id"):
             await book_choice(city, message, history, citizen, selected, fields(message.text))

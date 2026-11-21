@@ -102,9 +102,11 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
                 prior["facility"] = row.sender
         if prior and prior.get("facility") == row.sender:
             cancelled.add(prior.get("slot_id"))
+    refused, cutoff = citizen_refusals(history, citizen, previous_offers)
+    cancelled |= refused
     items = [enrich(item, doctors) for item in items
              if item.get("slot_id") not in exclude and item.get("facility") not in exclude
-             and item.get("slot_id") not in cancelled]
+             and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs)
     if not candidates:
         await find_partners(city, need_id, citizen, procedure, priority, history)
@@ -152,7 +154,8 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     for peer in peers:
         if contacted >= 12:
             break
-        if peer.role != "facility" or peer.agent_id == city.agent_id or peer.agent_id in TEAM_AGENTS:
+        # The Index names the family (hospital, specialist_care, family_counseling), not "facility".
+        if peer.role not in FACILITY_ROLES or peer.agent_id == city.agent_id or peer.agent_id in TEAM_AGENTS:
             continue
         caps = tuple(getattr(peer, "capabilities", ()) or ())
         if capability and caps and capability not in caps:
@@ -190,8 +193,10 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             prior = previous_offers.get(fields(row.text).get("offer_id", ""))
             if prior and prior.get("facility") == row.sender:
                 cancelled.add(prior.get("slot_id"))
+    refused, cutoff = citizen_refusals(history, citizen, previous_offers)
+    cancelled |= refused
     for row in history:
-        if not row.sender.startswith("agent:") or act(row.text) != "offer":
+        if not row.sender.startswith("agent:") or not any(act(line) == "offer" for line in row.text.splitlines()):
             continue
         request = next((fields(previous.text) for previous in reversed(history)
                         if previous.sender == city.agent_id and previous.recipient == row.sender
@@ -204,7 +209,7 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             item = fields(line)
             if item.get("request_id") and item["request_id"] != request.get("request_id"):
                 continue
-            if item.get("facility") != row.sender or item.get("slot_id") in cancelled:
+            if item.get("facility") != row.sender or item.get("slot_id") in cancelled or not before_cutoff(item, cutoff):
                 continue
             for key, alias in (("languages", "doctor_lang"), ("gender", "doctor_gender")):
                 if alias in item:
@@ -368,3 +373,37 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
             await rebook(city, need_id, citizen, frozenset({selected["slot_id"]}))
     elif not sent(history, city.agent_id, citizen, "La struttura non ha ancora confermato"):
         await send(city, citizen, PENDING_NOTE)
+
+
+FACILITY_ROLES = frozenset({"facility", "hospital", "specialist_care", "family_counseling"})
+DEADLINE_REASONS = frozenset({"deadline", "too_late", "late", "expired", "past"})
+
+
+def citizen_refusals(history: list, citizen: str, sent: dict) -> tuple[set, datetime | None]:
+    """Slots the citizen turned down, and the earliest one refused for its deadline.
+
+    The citizen's deadline runs from the prescription, while the agenda keeps moving:
+    once a slot is "too late", every later slot is too late as well.
+    """
+    refused, cutoff = set(), None
+    for row in history:
+        # Citizens write the sentence first and the act after it: read it like understood().
+        if row.sender != citizen or "cancel" not in row.text.replace(",", " ").split():
+            continue
+        data = fields(row.text)
+        prior = sent.get(data.get("offer_id", ""))
+        if not prior:
+            continue
+        refused.add(prior.get("slot_id"))
+        if data.get("reason") in DEADLINE_REASONS:
+            at = time(prior.get("at", prior.get("agenda_date", "")))
+            if at and (cutoff is None or at < cutoff):
+                cutoff = at
+    return refused, cutoff
+
+
+def before_cutoff(item: dict, cutoff: datetime | None) -> bool:
+    if cutoff is None:
+        return True
+    at = time(item.get("at", item.get("agenda_date", "")))
+    return bool(at) and at < cutoff

@@ -506,3 +506,52 @@ class Level3Test(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class RingFixTest(unittest.TestCase):
+    def test_ring_contacts_peers_the_index_names_by_family(self):
+        class SearchingCity(FakeCity):
+            async def find(self, query):
+                return [SimpleNamespace(agent_id='agent:other/h', role='hospital', capabilities=('hospital.physiatry',)),
+                        SimpleNamespace(agent_id='agent:other/gp', role='gp', capabilities=('gp',))]
+        city = SearchingCity([])
+        asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', []))
+        targets = [to for to, text in city.out if text.startswith('need.request')]
+        self.assertEqual(targets, ['agent:other/h'])
+        self.assertFalse(any('no suitable availability' in text.lower() for _, text in city.out))
+
+    def test_deadline_refusal_caps_later_slots_and_is_never_reoffered(self):
+        me = 'agent:team/booking'
+        sent = msg(me, 'offer offer_id=o2 slot_id=S2 at=2026-11-17T10:30:00+00:00\n'
+                       'offer offer_id=o3 slot_id=S3 at=2026-11-18T10:30:00+00:00', 'citizen:1', mid='s')
+        refuse = msg('citizen:1', 'No, grazie. cancel offer_id=o2 reason=deadline', me, mid='r')
+        history = [sent, refuse]
+        refused, cutoff = booking.bc_flow.citizen_refusals(history, 'citizen:1', booking.offers(history, me, 'citizen:1'))
+        self.assertEqual(refused, {'S2'})
+        self.assertTrue(booking.bc_flow.before_cutoff({'at': '2026-11-16T12:00:00+00:00'}, cutoff))
+        self.assertFalse(booking.bc_flow.before_cutoff({'at': '2026-11-18T10:30:00+00:00'}, cutoff))
+
+    def test_english_receipt_still_reads_as_a_receipt(self):
+        from city_sdk.city import understood
+        text = booking.bc_common.clean_prose('booking.receipt booking_id=B1 ' + booking.receipt_note({'procedure': 'VIS-FIS'}, True))
+        self.assertEqual(understood(msg('agent:x', text)).type, 'booking.receipt')
+        offers = booking.bc_common.clean_prose('offer offer_id=a slot_id=s1\noffer offer_id=b slot_id=s2\nThese fit your prescription.')
+        self.assertEqual(offers.splitlines()[1], 'offer offer_id=b slot_id=s2')
+
+
+class CitizenCancelTest(unittest.TestCase):
+    def test_a_refusal_is_never_read_as_a_choice(self):
+        me = 'agent:team/booking'
+        rows = [msg(me, 'offer offer_id=o2 slot_id=S2 at=2026-11-17T10:30:00+00:00', 'citizen:1', mid='s'),
+                msg('citizen:1', 'Questa data non va bene. cancel offer_id=o2 reason=deadline', me, mid='r')]
+        city = FakeCity(rows)
+        city.inbound = rows[-1]
+        booked = []
+        orig = booking.book_choice
+        async def fake_book(*a, **k): booked.append(a)
+        booking.book_choice = fake_book
+        try:
+            asyncio.run(booking.follow_up(city, 'case-1', rows, 'citizen:1'))
+        finally:
+            booking.book_choice = orig
+        self.assertEqual(booked, [])

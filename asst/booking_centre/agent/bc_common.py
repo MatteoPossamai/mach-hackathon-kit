@@ -87,7 +87,27 @@ def sent(history: list, agent: str, recipient: str, prefix: str) -> bool:
     return any(m.sender == agent and m.recipient == recipient and m.text.startswith(prefix) for m in history)
 
 
+# understood() keeps the LAST act word of a text: a bare "prescription" or "offer" in the
+# sentence would change what the citizen reads. Swap such words in the prose (MACH-1.1).
+PROSE_SWAP = {
+    "offer": "propose", "prescription": "referral", "confirm": "approve", "cancel": "call off",
+    "consent": "permission", "checkin": "check-in", "report": "findings", "hold": "keep",
+}
+
+
+def clean_prose(text: str) -> str:
+    out = []
+    for line in text.split("\n"):
+        head, sep, rest = line.partition(" ")
+        if rest:
+            rest = " ".join(word if "=" in word else PROSE_SWAP.get(word, word) for word in rest.split(" "))
+        out.append(head + sep + rest)
+    return "\n".join(out)
+
+
 async def send(city: City, recipient: str, text: str) -> bool:
+    if recipient != LEDGER and text:
+        text = clean_prose(text)
     try:
         await city.say(recipient, text)
         return True
