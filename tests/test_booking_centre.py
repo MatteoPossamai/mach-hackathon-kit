@@ -588,7 +588,8 @@ class RingFixTest(unittest.TestCase):
         class SearchingCity(FakeCity):
             async def find(self, query):
                 return [Peer(GIAMBELLINO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',)),
-                        Peer('agent:xxxxxxxxxxxx', role='hospital', capabilities=('hospital.physiatry',)),
+                        Peer('agent:xxxxxxxxxxxx', role='hospital', capabilities=('hospital.physiatry',)),  # not in the roster: impostor
+                        Peer('agent:fnxy73v47n9g', role='hospital', capabilities=('hospital.physiatry',)),  # spilucchini, roster only
                         Peer(BICOCCA_HOSPITAL, role='hospital', capabilities=('specialist_care.cardiology',)),
                         Peer(PRECOTTO_SPECIALIST, role='hospital', capabilities=('hospital.physiatry',)),
                         Peer(PRECOTTO_HOSPITAL, role='hospital', capabilities=('hospital.physiatry',))]
@@ -600,7 +601,7 @@ class RingFixTest(unittest.TestCase):
         city = SearchingCity(rows)
         asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', rows))
         requests = [(to, booking.fields(text)) for to, text in city.out if text.startswith('need.request ')]
-        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL, 'agent:xxxxxxxxxxxx'])
+        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL, 'agent:fnxy73v47n9g'])
         for _, criteria in requests:
             self.assertEqual(criteria['v'], '1.2')
             self.assertEqual(criteria['lang'], 'ro')
@@ -900,6 +901,35 @@ class CrossAsstConsentTest(unittest.TestCase):
         local = msg(me, 'consent purpose=booking', 'citizen:1')
         self.assertEqual(booking.cross_consent([cross, reply], me, 'citizen:1'), 'actual-ref')
         self.assertEqual(booking.cross_consent([cross, local, reply], me, 'citizen:1'), '')
+
+
+class WarmToneTest(unittest.TestCase):
+    """Warm, proactive texts must keep their act and stay non-clinical (city:review, sandbox)."""
+
+    def read_as(self, text):
+        from city_sdk.city import understood
+        m = Message(type='chat', sender='agent:x', recipient='citizen:1', msg_id='m', need_id='N', body={'text': text})
+        return understood(m).type
+
+    def test_texts_keep_their_act_and_are_not_clinical(self):
+        from city_sdk.city import clinical
+        flow = booking.bc_flow
+        receipt = {'agenda_date': '2026-12-04T10:30:00Z', 'procedure': 'VIS-FIS'}
+        cases = [
+            (booking.clean_prose('booking.receipt booking_id=b1 ledger_ref=r1 ' + booking.receipt_note(receipt, False)), 'booking.receipt'),
+            (booking.clean_prose('booking.receipt booking_id=b1 ledger_ref=r1 ' + booking.receipt_note(receipt, True)), 'booking.receipt'),
+            (booking.clean_prose(flow.nothing_offer('N-1', False)), 'offer'),
+            (booking.clean_prose(flow.nothing_offer('N-1', True)), 'offer'),
+        ]
+        for text, act in cases:
+            with self.subTest(text=text[:60]):
+                self.assertEqual(self.read_as(text), act)
+        for text in (flow.ACK_IT, flow.ACK_EN, flow.NOTHING_IT, flow.NOTHING_EN, booking.receipt_note(receipt, False)):
+            with self.subTest(text=text[:60]):
+                self.assertNotIn(self.read_as(booking.clean_prose(text)), {'offer', 'prescription', 'confirm', 'cancel', 'consent', 'hold'})
+                self.assertFalse(clinical(text), text)
+        self.assertIn('mezzi pubblici', booking.receipt_note(receipt, False))
+        self.assertIn('accesso senza barriere', booking.receipt_note(receipt, False))
 
 
 class SlowLedgerTest(unittest.TestCase):

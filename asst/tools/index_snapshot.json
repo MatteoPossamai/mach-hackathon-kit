@@ -1,0 +1,3122 @@
+{
+ "agent:eg6p3m77svxv": {
+  "agent_id": "agent:eg6p3m77svxv",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -319,
+  "address": {
+   "label": "Via Quintiliano Marco Fabio 7",
+   "lon": 9.243155,
+   "lat": 45.452423
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:synpolis",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.1",
+  "card_error": ""
+ },
+ "agent:psxp8bh1feaa": {
+  "agent_id": "agent:psxp8bh1feaa",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -578,
+  "address": {
+   "label": "Via Caro Annibal 18",
+   "lon": 9.176051,
+   "lat": 45.517729
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:agentic-paguri",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.14",
+  "card_error": ""
+ },
+ "agent:jastt2eeekcv": {
+  "agent_id": "agent:jastt2eeekcv",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -504,
+  "address": {
+   "label": "Via Cusago 33",
+   "lon": 9.083773,
+   "lat": 45.461442
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:quantvengers",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.10",
+  "card_error": ""
+ },
+ "agent:yzcs4p44ep39": {
+  "agent_id": "agent:yzcs4p44ep39",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -497,
+  "address": {
+   "label": "Via Toffetti Vincenzo 9",
+   "lon": 9.234956,
+   "lat": 45.436301
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:scuola-di-atene",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "7.0.5",
+  "card_error": ""
+ },
+ "agent:vdmz874c65kp": {
+  "agent_id": "agent:vdmz874c65kp",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -496,
+  "address": {
+   "label": "Via Cascina Bianca 8",
+   "lon": 9.153052,
+   "lat": 45.42701
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:sciur-agent",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.68",
+  "card_error": ""
+ },
+ "agent:ser7es7thgwf": {
+  "agent_id": "agent:ser7es7thgwf",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -718,
+  "address": {
+   "label": "Via Rucellai Bernardo 46",
+   "lon": 9.217925,
+   "lat": 45.5121
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:toros",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.19",
+  "card_error": ""
+ },
+ "agent:ez8cb7j167p2": {
+  "agent_id": "agent:ez8cb7j167p2",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -465,
+  "address": {
+   "label": "Via Sacchetti Franco 35",
+   "lon": 9.209422,
+   "lat": 45.513479
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:p4radigm",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.23",
+  "card_error": ""
+ },
+ "agent:pewepg7h3c5g": {
+  "agent_id": "agent:pewepg7h3c5g",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -156,
+  "address": {
+   "label": "Via dei Gradenigo 3",
+   "lon": 9.132247,
+   "lat": 45.477515
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:bhealth",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.0",
+  "card_error": ""
+ },
+ "agent:sphwpc5tg4p9": {
+  "agent_id": "agent:sphwpc5tg4p9",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -443,
+  "address": {
+   "label": "Via Perasto 2",
+   "lon": 9.189571,
+   "lat": 45.488912
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:diuo",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.3",
+  "card_error": ""
+ },
+ "agent:h3n6kfd18r3g": {
+  "agent_id": "agent:h3n6kfd18r3g",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -155,
+  "address": {
+   "label": "Viale Testi Fulvio 26A",
+   "lon": 9.199795,
+   "lat": 45.504579
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:tartufi-pazzi",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.35",
+  "card_error": ""
+ },
+ "agent:sbdpbpqz5sxe": {
+  "agent_id": "agent:sbdpbpqz5sxe",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -303,
+  "address": {
+   "label": "Via f.lli Pozzi 1A",
+   "lon": 9.222704,
+   "lat": 45.504382
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:the-promptfather-s",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.23",
+  "card_error": ""
+ },
+ "agent:q6s5nm3h5dq5": {
+  "agent_id": "agent:q6s5nm3h5dq5",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -666,
+  "address": {
+   "label": "Via della Moscova 38A",
+   "lon": 9.18736,
+   "lat": 45.47729
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:cmdccmdv",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:p56k8h29kc45": {
+  "agent_id": "agent:p56k8h29kc45",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -649,
+  "address": {
+   "label": "Via Noto 16",
+   "lon": 9.2012,
+   "lat": 45.430655
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:bbc",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "2.2.0",
+  "card_error": ""
+ },
+ "agent:fn64xfq2jft4": {
+  "agent_id": "agent:fn64xfq2jft4",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -632,
+  "address": {
+   "label": "Via Leone Da Perego 15",
+   "lon": 9.190276,
+   "lat": 45.523509
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:polimi",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.29",
+  "card_error": ""
+ },
+ "agent:gdrf9b9kxxss": {
+  "agent_id": "agent:gdrf9b9kxxss",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -389,
+  "address": {
+   "label": "Via Crespi Gaetano 21",
+   "lon": 9.241885,
+   "lat": 45.479208
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:ltf-jecatt",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.25",
+  "card_error": ""
+ },
+ "agent:ejfzvz4tdagq": {
+  "agent_id": "agent:ejfzvz4tdagq",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -1171,
+  "address": {
+   "label": "Via Cassinari Bruno 3",
+   "lon": 9.240723,
+   "lat": 45.436211
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:spilucchini",
+  "name": "spilucchini - Centro prenotazioni",
+  "card_role": "booking_centre",
+  "version": "3.0.0",
+  "card_error": ""
+ },
+ "agent:n8geakhhcprc": {
+  "agent_id": "agent:n8geakhhcprc",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -1499,
+  "address": {
+   "label": "Via Calzecchi Temistocle 15",
+   "lon": 9.234853,
+   "lat": 45.472343
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:ai-capito",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:vgtmj5nqfkxj": {
+  "agent_id": "agent:vgtmj5nqfkxj",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -819,
+  "address": {
+   "label": "Via degli Imbriani 20",
+   "lon": 9.169572,
+   "lat": 45.498935
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:prompt-soccorso",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.16",
+  "card_error": ""
+ },
+ "agent:cdc7x6m21nj6": {
+  "agent_id": "agent:cdc7x6m21nj6",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -65,
+  "address": {
+   "label": "Via Gorki Massimo 10",
+   "lon": 9.150383,
+   "lat": 45.450299
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:red-agent",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.18",
+  "card_error": ""
+ },
+ "agent:hwfrwj893121": {
+  "agent_id": "agent:hwfrwj893121",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -606,
+  "address": {
+   "label": "Via Moretto Da Brescia 1",
+   "lon": 9.22452,
+   "lat": 45.472704
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:it-s-a-feature-not-a-bug",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.15",
+  "card_error": ""
+ },
+ "agent:qtjne8symjas": {
+  "agent_id": "agent:qtjne8symjas",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -399,
+  "address": {
+   "label": "Via Cascina Corba 75",
+   "lon": 9.130307,
+   "lat": 45.45192
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:raspberry",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.28",
+  "card_error": ""
+ },
+ "agent:jgy1dj2sw2ew": {
+  "agent_id": "agent:jgy1dj2sw2ew",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -369,
+  "address": {
+   "label": "Via Bobbio 4",
+   "lon": 9.170635,
+   "lat": 45.455249
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:epica",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.13",
+  "card_error": ""
+ },
+ "agent:tnzkhsa62kn0": {
+  "agent_id": "agent:tnzkhsa62kn0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -138,
+  "address": {
+   "label": "Via Ricciarelli Daniele 45",
+   "lon": 9.137565,
+   "lat": 45.468776
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:psq-quelli-veri",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:y6hxsd766sys": {
+  "agent_id": "agent:y6hxsd766sys",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -660,
+  "address": {
+   "label": "Via f.lli Gabba 10",
+   "lon": 9.189943,
+   "lat": 45.470808
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:buildframe",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "2.9.1",
+  "card_error": ""
+ },
+ "agent:z6pbm2a7vf36": {
+  "agent_id": "agent:z6pbm2a7vf36",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -660,
+  "address": {
+   "label": "Strada della Carita' 8",
+   "lon": 9.208459,
+   "lat": 45.449468
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:gruppo-2",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:geyjmp26tajh": {
+  "agent_id": "agent:geyjmp26tajh",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "booking_centre",
+  "capabilities": [
+   "booking_centre"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -431,
+  "address": {
+   "label": "Via Pitteri Riccardo 85",
+   "lon": 9.246182,
+   "lat": 45.478596
+  },
+  "query_role": "booking_centre",
+  "verified": true,
+  "team": "team:t-5-gin-tokens",
+  "name": "booking_centre",
+  "card_role": "booking_centre",
+  "version": "1.0.12",
+  "card_error": ""
+ },
+ "agent:fddgaqmp6kb0": {
+  "agent_id": "agent:fddgaqmp6kb0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4359,
+  "address": {
+   "label": "Via Ornato Luigi 6",
+   "lon": 9.191223,
+   "lat": 45.515258
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:polimi",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.16",
+  "card_error": ""
+ },
+ "agent:h82xpx3rkn9e": {
+  "agent_id": "agent:h82xpx3rkn9e",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4978,
+  "address": {
+   "label": "Via Verita' Don Giovanni 11A",
+   "lon": 9.166184,
+   "lat": 45.503243
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:prompt-soccorso",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:pp83zdrg8vhe": {
+  "agent_id": "agent:pp83zdrg8vhe",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 5003,
+  "address": {
+   "label": "Via Milani Giovanni 5",
+   "lon": 9.230716,
+   "lat": 45.482165
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:it-s-a-feature-not-a-bug",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:rng5wcrzvhsj": {
+  "agent_id": "agent:rng5wcrzvhsj",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4043,
+  "address": {
+   "label": "Via Sacchetti Franco 15",
+   "lon": 9.207819,
+   "lat": 45.512572
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:p4radigm",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:ck9w60ejwnvw": {
+  "agent_id": "agent:ck9w60ejwnvw",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 3616,
+  "address": {
+   "label": "Via Val Gardena 25",
+   "lon": 9.229966,
+   "lat": 45.510253
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:the-promptfather-s",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.15",
+  "card_error": ""
+ },
+ "agent:w9easgp707bn": {
+  "agent_id": "agent:w9easgp707bn",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4466,
+  "address": {
+   "label": "Viale Famagosta 6A",
+   "lon": 9.156445,
+   "lat": 45.436596
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:sciur-agent",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.30",
+  "card_error": ""
+ },
+ "agent:bmrcsmqq6at2": {
+  "agent_id": "agent:bmrcsmqq6at2",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4388,
+  "address": {
+   "label": "Via Gioia Melchiorre 170",
+   "lon": 9.208411,
+   "lat": 45.496884
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:tartufi-pazzi",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.18",
+  "card_error": ""
+ },
+ "agent:hkrtm1gzjb24": {
+  "agent_id": "agent:hkrtm1gzjb24",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4412,
+  "address": {
+   "label": "Via Barzoni Vittorio 11A",
+   "lon": 9.227076,
+   "lat": 45.437477
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:scuola-di-atene",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "7.0.4",
+  "card_error": ""
+ },
+ "agent:dn90g1skkx0f": {
+  "agent_id": "agent:dn90g1skkx0f",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4250,
+  "address": {
+   "label": "Via Zamenhof Ludovico Lazzaro 8",
+   "lon": 9.180338,
+   "lat": 45.445005
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:epica",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.10",
+  "card_error": ""
+ },
+ "agent:n4yjr7kjbmrx": {
+  "agent_id": "agent:n4yjr7kjbmrx",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4723,
+  "address": {
+   "label": "Via Frigia 25",
+   "lon": 9.222209,
+   "lat": 45.517291
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:toros",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:xbmtvn6jzvyg": {
+  "agent_id": "agent:xbmtvn6jzvyg",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4220,
+  "address": {
+   "label": "Via Manin Daniele 35",
+   "lon": 9.197806,
+   "lat": 45.477027
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:cmdccmdv",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:b0pk7g42fcsn": {
+  "agent_id": "agent:b0pk7g42fcsn",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4247,
+  "address": {
+   "label": "Via Barigozzi Ermanno 6",
+   "lon": 9.243099,
+   "lat": 45.461538
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:synpolis",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:d6c308wmh6ky": {
+  "agent_id": "agent:d6c308wmh6ky",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4157,
+  "address": {
+   "label": "Viale Sabotino 23",
+   "lon": 9.201148,
+   "lat": 45.451092
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:gruppo-2",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.1.3",
+  "card_error": ""
+ },
+ "agent:bq7e62g3kkz3": {
+  "agent_id": "agent:bq7e62g3kkz3",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 2538,
+  "address": {
+   "label": "Via Mignone Milly Carla 6",
+   "lon": 9.10694,
+   "lat": 45.47203
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:bhealth",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.10",
+  "card_error": ""
+ },
+ "agent:ega0tzcy6za8": {
+  "agent_id": "agent:ega0tzcy6za8",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 3661,
+  "address": {
+   "label": "Via Pitteri Riccardo 27",
+   "lon": 9.24833,
+   "lat": 45.473907
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:t-5-gin-tokens",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:cxvqv5qztz70": {
+  "agent_id": "agent:cxvqv5qztz70",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4317,
+  "address": {
+   "label": "Via Arnaldo Da Brescia 10",
+   "lon": 9.18161,
+   "lat": 45.490606
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:diuo",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.0",
+  "card_error": ""
+ },
+ "agent:xjsdqxvj3x59": {
+  "agent_id": "agent:xjsdqxvj3x59",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 5932,
+  "address": {
+   "label": "Via Inama Vigilio 19",
+   "lon": 9.233351,
+   "lat": 45.472779
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:ai-capito",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:ny08j7bvs7jw": {
+  "agent_id": "agent:ny08j7bvs7jw",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4057,
+  "address": {
+   "label": "Via Diotti Benedetto 11",
+   "lon": 9.089412,
+   "lat": 45.469256
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:quantvengers",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:wwxaphfb5pfh": {
+  "agent_id": "agent:wwxaphfb5pfh",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 3984,
+  "address": {
+   "label": "Via Caro Annibal 7A",
+   "lon": 9.176072,
+   "lat": 45.516787
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:agentic-paguri",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:qsbsfjytc3y5": {
+  "agent_id": "agent:qsbsfjytc3y5",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 3983,
+  "address": {
+   "label": "Via Caccialepori 43",
+   "lon": 9.141815,
+   "lat": 45.47123
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:psq-quelli-veri",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:c32jyk0cyan7": {
+  "agent_id": "agent:c32jyk0cyan7",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 3723,
+  "address": {
+   "label": "Via La Valle Remo 3",
+   "lon": 9.12757,
+   "lat": 45.445842
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:red-agent",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.9",
+  "card_error": ""
+ },
+ "agent:jmqwr12vy2j6": {
+  "agent_id": "agent:jmqwr12vy2j6",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4973,
+  "address": {
+   "label": "Via Cesare Da Sesto 11",
+   "lon": 9.17248,
+   "lat": 45.457736
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:buildframe",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "2.95.0",
+  "card_error": ""
+ },
+ "agent:hwgn012k70gh": {
+  "agent_id": "agent:hwgn012k70gh",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 5143,
+  "address": {
+   "label": "Via Bonfadini Romualdo 38",
+   "lon": 9.236383,
+   "lat": 45.445406
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:spilucchini",
+  "name": "spilucchini - Medico di base",
+  "card_role": "gp",
+  "version": "2.1.0",
+  "card_error": ""
+ },
+ "agent:v4y8p7h8gkzw": {
+  "agent_id": "agent:v4y8p7h8gkzw",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4430,
+  "address": {
+   "label": "Viale Gian Galeazzo 8",
+   "lon": 9.183108,
+   "lat": 45.452464
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:bbc",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:c2ewegr2ea3v": {
+  "agent_id": "agent:c2ewegr2ea3v",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4150,
+  "address": {
+   "label": "Via Pini Tommaso 1",
+   "lon": 9.240477,
+   "lat": 45.484669
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:ltf-jecatt",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.14",
+  "card_error": ""
+ },
+ "agent:w2qsptc9qqhg": {
+  "agent_id": "agent:w2qsptc9qqhg",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "gp",
+  "capabilities": [
+   "gp"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 4185,
+  "address": {
+   "label": "Via Inganni Angelo 54",
+   "lon": 9.124816,
+   "lat": 45.453261
+  },
+  "query_role": "gp",
+  "verified": true,
+  "team": "team:raspberry",
+  "name": "gp",
+  "card_role": "gp",
+  "version": "1.0.16",
+  "card_error": ""
+ },
+ "agent:fnxy73v47n9g": {
+  "agent_id": "agent:fnxy73v47n9g",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 0,
+  "address": {
+   "label": "Via Monte Popera 11",
+   "lon": 9.246163,
+   "lat": 45.431327
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:spilucchini",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "3.0.0",
+  "card_error": ""
+ },
+ "agent:p90cbsk3n9e6": {
+  "agent_id": "agent:p90cbsk3n9e6",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 138,
+  "address": {
+   "label": "Via san Bernardo 50",
+   "lon": 9.240849,
+   "lat": 45.415121
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:bbc",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:d6cxxmh767k3": {
+  "agent_id": "agent:d6cxxmh767k3",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 55,
+  "address": {
+   "label": "Viale Zara 18",
+   "lon": 9.192354,
+   "lat": 45.490904
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:diuo",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:aycbxayckhrd": {
+  "agent_id": "agent:aycbxayckhrd",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 152,
+  "address": {
+   "label": "Via Taliedo 4",
+   "lon": 9.247436,
+   "lat": 45.444144
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:synpolis",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.1",
+  "card_error": ""
+ },
+ "agent:gxq3vzgt3h5t": {
+  "agent_id": "agent:gxq3vzgt3h5t",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 125,
+  "address": {
+   "label": "Via La Masa Giuseppe 1",
+   "lon": 9.157917,
+   "lat": 45.50116
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:prompt-soccorso",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.7",
+  "card_error": ""
+ },
+ "agent:p2hwz5xyjrwz": {
+  "agent_id": "agent:p2hwz5xyjrwz",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 171,
+  "address": {
+   "label": "Via Palladio Andrea 26",
+   "lon": 9.200853,
+   "lat": 45.447091
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:gruppo-2",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.1.1",
+  "card_error": ""
+ },
+ "agent:gezf38x5940y": {
+  "agent_id": "agent:gezf38x5940y",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 94,
+  "address": {
+   "label": "Via Scaldasole 4",
+   "lon": 9.180119,
+   "lat": 45.454296
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:epica",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:h6r1v45esk77": {
+  "agent_id": "agent:h6r1v45esk77",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 133,
+  "address": {
+   "label": "Piazza Bolivar Simone 7",
+   "lon": 9.151965,
+   "lat": 45.454739
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:red-agent",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:r8yprrs0e8be": {
+  "agent_id": "agent:r8yprrs0e8be",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 75,
+  "address": {
+   "label": "Via Canonica Luigi 39",
+   "lon": 9.174059,
+   "lat": 45.478968
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:buildframe",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.10.0",
+  "card_error": ""
+ },
+ "agent:gpr1zqe343gb": {
+  "agent_id": "agent:gpr1zqe343gb",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 108,
+  "address": {
+   "label": "Via Castellini Nicostrato 10",
+   "lon": 9.170015,
+   "lat": 45.496268
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:agentic-paguri",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:xtj1dk9x3qej": {
+  "agent_id": "agent:xtj1dk9x3qej",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 242,
+  "address": {
+   "label": "Via Pianell Salvatore 21",
+   "lon": 9.205603,
+   "lat": 45.506821
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:tartufi-pazzi",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.18",
+  "card_error": ""
+ },
+ "agent:ndrnnjwxttmb": {
+  "agent_id": "agent:ndrnnjwxttmb",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 135,
+  "address": {
+   "label": "Via Rivoli 6",
+   "lon": 9.18289,
+   "lat": 45.472595
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:cmdccmdv",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.9",
+  "card_error": ""
+ },
+ "agent:w2str91zrrbq": {
+  "agent_id": "agent:w2str91zrrbq",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 279,
+  "address": {
+   "label": "Via De Pretis Agostino 41",
+   "lon": 9.151112,
+   "lat": 45.429767
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:sciur-agent",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.41",
+  "card_error": ""
+ },
+ "agent:t40mr7xsn2wh": {
+  "agent_id": "agent:t40mr7xsn2wh",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 224,
+  "address": {
+   "label": "Via degli Ippocastani 14",
+   "lon": 9.083598,
+   "lat": 45.451956
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:quantvengers",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.3",
+  "card_error": ""
+ },
+ "agent:k2nwktpp02xx": {
+  "agent_id": "agent:k2nwktpp02xx",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 254,
+  "address": {
+   "label": "Via Ricciarelli Daniele 15",
+   "lon": 9.140614,
+   "lat": 45.470765
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:psq-quelli-veri",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.1.3",
+  "card_error": ""
+ },
+ "agent:vs1bs4485dcn": {
+  "agent_id": "agent:vs1bs4485dcn",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 187,
+  "address": {
+   "label": "Via Pitteri Riccardo 93A",
+   "lon": 9.245545,
+   "lat": 45.479294
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:t-5-gin-tokens",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:s1twcdzg3296": {
+  "agent_id": "agent:s1twcdzg3296",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 234,
+  "address": {
+   "label": "Via Pindaro 28",
+   "lon": 9.229241,
+   "lat": 45.516368
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:toros",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.15",
+  "card_error": ""
+ },
+ "agent:m6py14a1ej77": {
+  "agent_id": "agent:m6py14a1ej77",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 292,
+  "address": {
+   "label": "Via Guanella Don Luigi 20",
+   "lon": 9.22667,
+   "lat": 45.510872
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:the-promptfather-s",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.17",
+  "card_error": ""
+ },
+ "agent:tmt0bcv0st1f": {
+  "agent_id": "agent:tmt0bcv0st1f",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 231,
+  "address": {
+   "label": "Via Kuliscioff Anna 27",
+   "lon": 9.114333,
+   "lat": 45.446916
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:raspberry",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:darwa6412gz0": {
+  "agent_id": "agent:darwa6412gz0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 0,
+  "address": {
+   "label": "Viale Pisa 33",
+   "lon": 9.137175,
+   "lat": 45.463564
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:bhealth",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:x0vr9rbwpesr": {
+  "agent_id": "agent:x0vr9rbwpesr",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 199,
+  "address": {
+   "label": "Via dei Panigarola 2",
+   "lon": 9.220468,
+   "lat": 45.43724
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:scuola-di-atene",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "7.0.5",
+  "card_error": ""
+ },
+ "agent:nanpr5mgm2py": {
+  "agent_id": "agent:nanpr5mgm2py",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 135,
+  "address": {
+   "label": "Via san Faustino 62",
+   "lon": 9.24161,
+   "lat": 45.476354
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:ltf-jecatt",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:ytprhckwyw4t": {
+  "agent_id": "agent:ytprhckwyw4t",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 87,
+  "address": {
+   "label": "Via Ampere Andrea Maria 57A",
+   "lon": 9.226311,
+   "lat": 45.483565
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:it-s-a-feature-not-a-bug",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:bb01ggxymm05": {
+  "agent_id": "agent:bb01ggxymm05",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 207,
+  "address": {
+   "label": "Via Sesto San Giovanni 97",
+   "lon": 9.217665,
+   "lat": 45.518468
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:p4radigm",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:jdj692g4145e": {
+  "agent_id": "agent:jdj692g4145e",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 101,
+  "address": {
+   "label": "Via Arganini Gerolamo 38",
+   "lon": 9.195559,
+   "lat": 45.517626
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:polimi",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:r8njm9a6c7pv": {
+  "agent_id": "agent:r8njm9a6c7pv",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "hospital",
+  "capabilities": [
+   "hospital.physiatry"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 116,
+  "address": {
+   "label": "Via Piccinni Nicola 23",
+   "lon": 9.216014,
+   "lat": 45.482391
+  },
+  "query_role": "hospital",
+  "verified": true,
+  "team": "team:ai-capito",
+  "name": "hospital",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:sh35cbsy287d": {
+  "agent_id": "agent:sh35cbsy287d",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 138,
+  "address": {
+   "label": "Via Fortiguerra Nicolo' 6",
+   "lon": 9.208456,
+   "lat": 45.513369
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:p4radigm",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:t3ktav4yrxvb": {
+  "agent_id": "agent:t3ktav4yrxvb",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 84,
+  "address": {
+   "label": "Via Gervasini Don Giuseppe 37B",
+   "lon": 9.0808,
+   "lat": 45.46602
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:quantvengers",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:h6krzxx6es83": {
+  "agent_id": "agent:h6krzxx6es83",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 327,
+  "address": {
+   "label": "Via Breda Ernesto 26",
+   "lon": 9.213851,
+   "lat": 45.509193
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:the-promptfather-s",
+  "name": "specialist_care",
+  "card_role": "facility",
+  "version": "1.0.16",
+  "card_error": ""
+ },
+ "agent:zeahjp9bp2an": {
+  "agent_id": "agent:zeahjp9bp2an",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 126,
+  "address": {
+   "label": "Via Malipiero Gian Franco 12",
+   "lon": 9.244135,
+   "lat": 45.453815
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:synpolis",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.0",
+  "card_error": ""
+ },
+ "agent:cgj1c2mf1dx0": {
+  "agent_id": "agent:cgj1c2mf1dx0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 197,
+  "address": {
+   "label": "Via Pitteri Riccardo 2",
+   "lon": 9.249252,
+   "lat": 45.472487
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:t-5-gin-tokens",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:h8425ac7btd8": {
+  "agent_id": "agent:h8425ac7btd8",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 187,
+  "address": {
+   "label": "Via Bosco Don Giovanni 27",
+   "lon": 9.214969,
+   "lat": 45.442846
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:scuola-di-atene",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "7.0.4",
+  "card_error": ""
+ },
+ "agent:zand0f57ec1j": {
+  "agent_id": "agent:zand0f57ec1j",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 156,
+  "address": {
+   "label": "Via Ciaia Ignazio 3",
+   "lon": 9.175784,
+   "lat": 45.502155
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:agentic-paguri",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:gpwmb45gggme": {
+  "agent_id": "agent:gpwmb45gggme",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 113,
+  "address": {
+   "label": "Via Sacchini Antonio Gaspare 15",
+   "lon": 9.220085,
+   "lat": 45.485407
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:ai-capito",
+  "name": "specialist_care",
+  "card_role": "facility",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:n0p2dwznf4mc": {
+  "agent_id": "agent:n0p2dwznf4mc",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 82,
+  "address": {
+   "label": "Via del Mare 97",
+   "lon": 9.157892,
+   "lat": 45.41891
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:bbc",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:qg7rvp6ktyne": {
+  "agent_id": "agent:qg7rvp6ktyne",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 195,
+  "address": {
+   "label": "Via De Pretis Agostino 55",
+   "lon": 9.150682,
+   "lat": 45.42884
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:sciur-agent",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.31",
+  "card_error": ""
+ },
+ "agent:s2tevpn8zkcj": {
+  "agent_id": "agent:s2tevpn8zkcj",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 117,
+  "address": {
+   "label": "Via Tabacchi Odoardo 1",
+   "lon": 9.179858,
+   "lat": 45.447525
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:epica",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:sc25kab6cgde": {
+  "agent_id": "agent:sc25kab6cgde",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 119,
+  "address": {
+   "label": "Via Tajani Filippo 9",
+   "lon": 9.236518,
+   "lat": 45.472156
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:it-s-a-feature-not-a-bug",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.14",
+  "card_error": ""
+ },
+ "agent:f2s88vwd3jnf": {
+  "agent_id": "agent:f2s88vwd3jnf",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 228,
+  "address": {
+   "label": "Viale Monza 285",
+   "lon": 9.224803,
+   "lat": 45.51471
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:toros",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.19",
+  "card_error": ""
+ },
+ "agent:pky3vqyqbepa": {
+  "agent_id": "agent:pky3vqyqbepa",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 145,
+  "address": {
+   "label": "Via Ortica 10",
+   "lon": 9.2432,
+   "lat": 45.470896
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:ltf-jecatt",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:s5sevkc5291w": {
+  "agent_id": "agent:s5sevkc5291w",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 6,
+  "address": {
+   "label": "Via Monte Palombino 2",
+   "lon": 9.243652,
+   "lat": 45.431437
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:spilucchini",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "3.0.0",
+  "card_error": ""
+ },
+ "agent:jmjfst55vgjz": {
+  "agent_id": "agent:jmjfst55vgjz",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 130,
+  "address": {
+   "label": "Viale Ca' Granda 28",
+   "lon": 9.194267,
+   "lat": 45.508147
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:polimi",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.7",
+  "card_error": ""
+ },
+ "agent:fjmvabg58gh0": {
+  "agent_id": "agent:fjmvabg58gh0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 123,
+  "address": {
+   "label": "Via Solferino 34",
+   "lon": 9.187995,
+   "lat": 45.477429
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:cmdccmdv",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.10",
+  "card_error": ""
+ },
+ "agent:tty8erdj6t41": {
+  "agent_id": "agent:tty8erdj6t41",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 85,
+  "address": {
+   "label": "Via Giudice Donadoni Maddalena 18",
+   "lon": 9.161076,
+   "lat": 45.504849
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:prompt-soccorso",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:a88btdp00ymw": {
+  "agent_id": "agent:a88btdp00ymw",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 144,
+  "address": {
+   "label": "Corso Lodi 36",
+   "lon": 9.208997,
+   "lat": 45.447701
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:gruppo-2",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:n9bf9y6670hp": {
+  "agent_id": "agent:n9bf9y6670hp",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 190,
+  "address": {
+   "label": "Via delle Orchidee 5",
+   "lon": 9.129133,
+   "lat": 45.456051
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:raspberry",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.11",
+  "card_error": ""
+ },
+ "agent:fa0sw3wwn1d4": {
+  "agent_id": "agent:fa0sw3wwn1d4",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 0,
+  "address": {
+   "label": "Via degli Ontani 20",
+   "lon": 9.079334,
+   "lat": 45.454584
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:bhealth",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.2",
+  "card_error": ""
+ },
+ "agent:yk37jqcnc1r5": {
+  "agent_id": "agent:yk37jqcnc1r5",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 258,
+  "address": {
+   "label": "Via Rubens Pietro 30",
+   "lon": 9.141998,
+   "lat": 45.467698
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:psq-quelli-veri",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.10",
+  "card_error": ""
+ },
+ "agent:dqfw9nh15dn4": {
+  "agent_id": "agent:dqfw9nh15dn4",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 100,
+  "address": {
+   "label": "Via Appiani Andrea 23",
+   "lon": 9.194156,
+   "lat": 45.478908
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:buildframe",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.10.0",
+  "card_error": ""
+ },
+ "agent:hnpe58epeyh1": {
+  "agent_id": "agent:hnpe58epeyh1",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 116,
+  "address": {
+   "label": "Piazza Tirana 19",
+   "lon": 9.130537,
+   "lat": 45.443247
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:red-agent",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:etpwrfmfa8hm": {
+  "agent_id": "agent:etpwrfmfa8hm",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": -20,
+  "address": {
+   "label": "Via Civerchio Vincenzo 9",
+   "lon": 9.187725,
+   "lat": 45.491448
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:diuo",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:q18es2d82f8r": {
+  "agent_id": "agent:q18es2d82f8r",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "specialist_care",
+  "capabilities": [
+   "specialist_care.cardiology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 194,
+  "address": {
+   "label": "Via Zuccoli Luciano 10",
+   "lon": 9.209888,
+   "lat": 45.494818
+  },
+  "query_role": "specialist_care",
+  "verified": true,
+  "team": "team:tartufi-pazzi",
+  "name": "specialist",
+  "card_role": "facility",
+  "version": "1.0.17",
+  "card_error": ""
+ },
+ "agent:nkh372rd16yq": {
+  "agent_id": "agent:nkh372rd16yq",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 59,
+  "address": {
+   "label": "Piazza del Calendario 1",
+   "lon": 9.210044,
+   "lat": 45.510602
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:p4radigm",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:p5sq1njyjr47": {
+  "agent_id": "agent:p5sq1njyjr47",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 75,
+  "address": {
+   "label": "Via D'Ovidio Francesco 6",
+   "lon": 9.225391,
+   "lat": 45.480415
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:it-s-a-feature-not-a-bug",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.9",
+  "card_error": ""
+ },
+ "agent:yr8hjc5q7n98": {
+  "agent_id": "agent:yr8hjc5q7n98",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 133,
+  "address": {
+   "label": "Viale Ungheria 20",
+   "lon": 9.246037,
+   "lat": 45.445664
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:synpolis",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.1",
+  "card_error": ""
+ },
+ "agent:nf9pqsgzrwm0": {
+  "agent_id": "agent:nf9pqsgzrwm0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 104,
+  "address": {
+   "label": "Via Gilino Gian Giacomo 6",
+   "lon": 9.228798,
+   "lat": 45.511701
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:toros",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.18",
+  "card_error": ""
+ },
+ "agent:mcppmrbjvxag": {
+  "agent_id": "agent:mcppmrbjvxag",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 85,
+  "address": {
+   "label": "Via Bisceglie 83",
+   "lon": 9.118963,
+   "lat": 45.450635
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:raspberry",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.14",
+  "card_error": ""
+ },
+ "agent:ccjzqm7yekwx": {
+  "agent_id": "agent:ccjzqm7yekwx",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 139,
+  "address": {
+   "label": "Via Bembo Pietro 22",
+   "lon": 9.175142,
+   "lat": 45.517842
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:agentic-paguri",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:bx7r8th27v1f": {
+  "agent_id": "agent:bx7r8th27v1f",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 70,
+  "address": {
+   "label": "Via Colletta Pietro 24A",
+   "lon": 9.210664,
+   "lat": 45.44919
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:gruppo-2",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.3",
+  "card_error": ""
+ },
+ "agent:mkfzagfe8jtt": {
+  "agent_id": "agent:mkfzagfe8jtt",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 48,
+  "address": {
+   "label": "Via Confalonieri Federico 1",
+   "lon": 9.189006,
+   "lat": 45.486437
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:diuo",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:drchwbffymha": {
+  "agent_id": "agent:drchwbffymha",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 151,
+  "address": {
+   "label": "Via Vetere 9",
+   "lon": 9.181151,
+   "lat": 45.456194
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:epica",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:pxvd2kk2yx5j": {
+  "agent_id": "agent:pxvd2kk2yx5j",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 68,
+  "address": {
+   "label": "Via Mainoni D'Intignano Luigi 6",
+   "lon": 9.203174,
+   "lat": 45.508613
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:tartufi-pazzi",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.17",
+  "card_error": ""
+ },
+ "agent:atp772whjkgd": {
+  "agent_id": "agent:atp772whjkgd",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 115,
+  "address": {
+   "label": "Via Conte Rosso 27",
+   "lon": 9.242354,
+   "lat": 45.483954
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:ltf-jecatt",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:mm18nddkfc5w": {
+  "agent_id": "agent:mm18nddkfc5w",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 114,
+  "address": {
+   "label": "Via Giolli Raffaello 23",
+   "lon": 9.210675,
+   "lat": 45.526277
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:polimi",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.7",
+  "card_error": ""
+ },
+ "agent:kx0j48fa0epp": {
+  "agent_id": "agent:kx0j48fa0epp",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 56,
+  "address": {
+   "label": "Via Orlando Vittorio Emanuele 16",
+   "lon": 9.174025,
+   "lat": 45.417009
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:bbc",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.5",
+  "card_error": ""
+ },
+ "agent:r7rgp7mdwg8y": {
+  "agent_id": "agent:r7rgp7mdwg8y",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 20,
+  "address": {
+   "label": "Via Gozzoli Benozzo 3",
+   "lon": 9.090127,
+   "lat": 45.457434
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:bhealth",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:hvycshaebezp": {
+  "agent_id": "agent:hvycshaebezp",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 101,
+  "address": {
+   "label": "Via Tiepolo Gian Battista 32",
+   "lon": 9.22048,
+   "lat": 45.472013
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:ai-capito",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.8",
+  "card_error": ""
+ },
+ "agent:txar5994gbkj": {
+  "agent_id": "agent:txar5994gbkj",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 112,
+  "address": {
+   "label": "Via Colico 11",
+   "lon": 9.162612,
+   "lat": 45.499475
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:prompt-soccorso",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.4",
+  "card_error": ""
+ },
+ "agent:d0kkschyjrdq": {
+  "agent_id": "agent:d0kkschyjrdq",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 70,
+  "address": {
+   "label": "Via Pitteri Riccardo 23",
+   "lon": 9.248444,
+   "lat": 45.473654
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:t-5-gin-tokens",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:p0n57t7vtpq0": {
+  "agent_id": "agent:p0n57t7vtpq0",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 98,
+  "address": {
+   "label": "Viale Omero 5",
+   "lon": 9.224606,
+   "lat": 45.436169
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:scuola-di-atene",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "7.0.4",
+  "card_error": ""
+ },
+ "agent:cj1jfac4ev86": {
+  "agent_id": "agent:cj1jfac4ev86",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 88,
+  "address": {
+   "label": "Via Fatebenesorelle 18",
+   "lon": 9.189916,
+   "lat": 45.478066
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:cmdccmdv",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.9",
+  "card_error": ""
+ },
+ "agent:yg8debxe3x0p": {
+  "agent_id": "agent:yg8debxe3x0p",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 104,
+  "address": {
+   "label": "Via Golfo Degli Aranci 15",
+   "lon": 9.23502,
+   "lat": 45.505668
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:the-promptfather-s",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.13",
+  "card_error": ""
+ },
+ "agent:hdnz4xe1c8d2": {
+  "agent_id": "agent:hdnz4xe1c8d2",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 111,
+  "address": {
+   "label": "Via De Pretis Agostino 83",
+   "lon": 9.153593,
+   "lat": 45.429485
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:sciur-agent",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.37",
+  "card_error": ""
+ },
+ "agent:jet0tz755hvf": {
+  "agent_id": "agent:jet0tz755hvf",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 35,
+  "address": {
+   "label": "Via san Mirocle 2",
+   "lon": 9.246974,
+   "lat": 45.436046
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:spilucchini",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "3.0.0",
+  "card_error": ""
+ },
+ "agent:sdca2w4p9f8z": {
+  "agent_id": "agent:sdca2w4p9f8z",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 91,
+  "address": {
+   "label": "Via Caccialepori 8",
+   "lon": 9.143778,
+   "lat": 45.468129
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:psq-quelli-veri",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.9",
+  "card_error": ""
+ },
+ "agent:pd5th2nkb31q": {
+  "agent_id": "agent:pd5th2nkb31q",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 78,
+  "address": {
+   "label": "Via Rismondo Francesco 36",
+   "lon": 9.093039,
+   "lat": 45.462847
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:quantvengers",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.3",
+  "card_error": ""
+ },
+ "agent:bzs050xacs1m": {
+  "agent_id": "agent:bzs050xacs1m",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 77,
+  "address": {
+   "label": "Via Savona 120",
+   "lon": 9.147299,
+   "lat": 45.448907
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:red-agent",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.0.6",
+  "card_error": ""
+ },
+ "agent:pv3a0t3tyqdq": {
+  "agent_id": "agent:pv3a0t3tyqdq",
+  "profiles": [
+   "mhm/1.0"
+  ],
+  "role": "family_counseling",
+  "capabilities": [
+   "family_counseling.gynecology"
+  ],
+  "no_clinical_advice": true,
+  "reputation": 148,
+  "address": {
+   "label": "Corso Europa 18",
+   "lon": 9.197341,
+   "lat": 45.464957
+  },
+  "query_role": "family_counseling",
+  "verified": true,
+  "team": "team:buildframe",
+  "name": "family_counseling",
+  "card_role": "facility",
+  "version": "1.94.0",
+  "card_error": ""
+ }
+}
