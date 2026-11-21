@@ -38,7 +38,7 @@ async def wait_for_language(city: City, citizen: str, prefs: dict[str, str], eng
 
 async def search(city: City, need_id: str, history: list, citizen: str, number: str,
                  exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False,
-                 relax_lang: bool = False) -> None:
+                 relax_lang: bool = False, force_lang: str = "") -> None:
     """Verify the prescription, read the whole local world and send every fitting slot at once.
 
     ``exclude`` holds slot ids and facility ids that failed (cancelled or unreachable).
@@ -120,6 +120,9 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
             if english else
             "In quali giorni della settimana è disponibile? Mi indichi i giorni (ad esempio lunedì, mercoledì) e cerco subito i posti migliori per lei."))
         return
+    if force_lang:
+        # The token language has nobody; the citizen named another language in words.
+        prefs = dict(prefs, lang=force_lang)
     if relax_lang:
         # Nobody speaks the language within the deadline, here or on the ring: a valid slot
         # with another doctor is better than no slot at all.
@@ -158,6 +161,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     if not candidates:
         if relax_lang:
             await send(city, citizen, nothing_offer(need_id, english))
+            return
+        if force_lang:
+            # Nobody speaks the named language either: any valid doctor, saying so.
+            await search(city, need_id, history, citizen, number, exclude, "", relax_lang=True)
             return
         if any(row.sender == city.agent_id and act(row.text) == "need.request" and row.recipient.startswith("agent:")
                for row in history):
@@ -572,6 +579,17 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
     number = case_number(history, citizen)
     if not lang or lang == "it" or not number or not TOKEN.fullmatch(number):
         await send(city, citizen, nothing_offer(need_id, english))
+        return
+    # The structured lang token can disagree with the language the citizen names in words
+    # ("a doctor who speaks English" with lang=hi): try the named one before any doctor.
+    spoken = keyword_preferences([row.text for row in history if row.sender == citizen and row.text]).get("lang", "")
+    if spoken and spoken != lang and spoken != "it":
+        name, said = LANG_NAMES.get(lang, (lang, lang)), LANG_NAMES.get(spoken, (spoken, spoken))
+        lead = (f"No doctor who speaks {name[1]} is free within your deadline; these slots are with doctors "
+                f"who speak {said[1]}, as you asked." if english else
+                f"Nessun medico che parla {name[0]} è libero entro la scadenza; questi posti sono con medici "
+                f"che parlano {said[0]}, come mi ha chiesto.")
+        await search(city, need_id, history, citizen, number, lead=lead, force_lang=spoken)
         return
     name = LANG_NAMES.get(lang, (lang, lang))
     lead = (f"So far I have found no confirmed slots with a doctor who speaks {name[1]} within your deadline. "
