@@ -1590,6 +1590,9 @@ async def _say(city: City, to: str, text: str) -> bool:
                 transient = False
             if not transient or attempt == _FAULT_RETRIES:
                 return False
+        except Exception:  # transport timeout or reset: transient, same message id is not reused
+            if attempt == _FAULT_RETRIES:
+                return False
         await asyncio.sleep(_FAULT_PAUSE * (attempt + 1))
     return False
 
@@ -1654,3 +1657,52 @@ def _rx_note(
     return (note + " Se nella nostra ASST non c'è un orario adatto, il centro prenotazioni chiede "
             "anche alle strutture partner di altre ASST, sempre con il suo permesso prima; se una "
             "struttura salta, le trova un nuovo orario entro la stessa scadenza.")
+
+
+# --- a citizen who has been waiting a long time ---------------------------------------------
+# The protocol priority never changes (a wrong priority costs the protocol match). What
+# changes: we acknowledge the wait first, and the booking centre hears it is a returning case.
+
+_FRUSTRATED = ("ancora", "di nuovo", "da giorni", "da settimane", "nessuno mi", "non riesco a prenotare",
+               "assurdo", "ridicol", "basta", "stufo", "stufa", "vergogna", "again", "still waiting",
+               "for weeks", "for days", "ridiculous", "nobody", "fed up", "sick of", "another round",
+               "more waiting", "ennesim", "carousel", "joke")
+
+
+def _frustrated(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(word in lowered for word in _FRUSTRATED)
+
+
+_rx_note_network = _rx_note
+
+
+def _rx_note(
+    procedure: str, priority: str, *, english: bool, text: str = "", reminder: bool = False
+) -> str:
+    note = _rx_note_network(procedure, priority, english=english, text=text, reminder=reminder)
+    if not _frustrated(text) or not note.startswith("- "):
+        return note
+    lead = ("I am sorry you have had to wait so long; I am handling your referral right away and "
+            "flagging your case to the booking centre. " if english else
+            "Mi scuso per l'attesa che ha già avuto; gestisco subito la sua ricetta e segnalo il suo "
+            "caso al centro prenotazioni. ")
+    return "- " + lead + note[2:]
+
+
+_handoff_plain = _handoff
+
+
+async def _handoff(city: City, chat: list[Message], number: str, procedure: str, priority: str) -> None:
+    citizen_text = " ".join(row.text for row in chat if row.sender.startswith("citizen:"))
+    if not _frustrated(citizen_text) or not number or city.agent_id == _TEAM_BOOKING_CENTRE:
+        await _handoff_plain(city, chat, number, procedure, priority)
+        return
+    token = f"prescription_number={number}"
+    if any(row.sender == city.agent_id and row.recipient == _TEAM_BOOKING_CENTRE and token in row.text
+           for row in chat):
+        return
+    tail = (f" procedure={procedure}" if procedure else "") + (f" priority={priority}" if priority else "")
+    await _say(city, _TEAM_BOOKING_CENTRE,
+               f"handoff {token}{tail} returning=true Paziente che aspetta da tempo: gestire la "
+               "prenotazione con precedenza appena scrive.")
