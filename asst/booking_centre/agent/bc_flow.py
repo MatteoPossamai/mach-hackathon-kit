@@ -714,8 +714,25 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
 
 # --- the world in parallel: page 1, then every other page at once ------------------------
 
+# One complete world read per procedure, shared by every case on this pod for WORLD_TTL real
+# seconds (half an agenda hour). Each citizen used to re-read up to 20 pages from a shared, slow
+# Ledger. A slot taken meanwhile is refused at hold time and rebooked, as before.
+WORLD_TTL = 30.0
+WORLD_CACHE: dict[str, tuple[float, list, dict]] = {}
+
+
 async def read_world(city: City, need_id: str, history: list, procedure: str):
     """Ledger world pages, asked in parallel after page 1, retrying only missing pages."""
+    cached = WORLD_CACHE.get(procedure)
+    if cached and _clock.monotonic() - cached[0] < WORLD_TTL:
+        return [dict(item) for item in cached[1]], dict(cached[2]), history, True
+    items, doctors, history, complete = await _read_world_pages(city, need_id, history, procedure)
+    if complete and items and WORLD_TTL > 0:
+        WORLD_CACHE[procedure] = (_clock.monotonic(), [dict(item) for item in items], dict(doctors))
+    return items, doctors, history, complete
+
+
+async def _read_world_pages(city: City, need_id: str, history: list, procedure: str):
     seen = {row.msg_id for row in history}
     is_slots = lambda m: m.sender == LEDGER and act(m.text) == "slots"
     page_of = lambda m: slots_page(m) if is_slots(m) and m.msg_id not in seen else None
