@@ -342,7 +342,15 @@ async def _on_booking_refused(
     if slot:
         parts.append(f"slot_id={slot}")
     parts.append(f"reason={reason}")
-    if target.startswith("citizen:") and _is_english(chat):
+    if reason == "prescription_expired" and target.startswith("citizen:"):
+        parts.append(
+            "Your prescription has expired under the current rule: please ask your GP to renew it "
+            "(send them your prescription number), then the booking centre will book again at once."
+            if _is_english(chat) else
+            "La ricetta risulta scaduta con la regola in vigore: chieda al medico di base il rinnovo "
+            "(gli mandi il numero della ricetta), poi il centro prenotazioni prenota subito."
+        )
+    elif target.startswith("citizen:") and _is_english(chat):
         parts.append(
             f"We could not confirm the requested slot ({reason}). "
             "Please select another available time or check the requirements."
