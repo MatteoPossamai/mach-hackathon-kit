@@ -101,6 +101,20 @@ class GPTest(unittest.TestCase):
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
 
+    def test_deploy_probe_ends_without_a_relay_read(self):
+        """custody.ack 13:12: the conformance probe (service=lab) cost one slow history read."""
+        reads = []
+        class Probe(City):
+            async def history(self, **kwargs):
+                reads.append(1)
+                return await super().history(**kwargs)
+        probe = Message(type='need.request', sender='agent:t05/osp-x', recipient='agent:gp', msg_id='p1',
+                        need_id='N-P', body={'service': 'lab', 'summary': 'visit', 'district': 8})
+        c = Probe(probe)
+        self.run_gp(c, Need(service='lab', summary='visit', district=8, message=probe))
+        self.assertEqual(reads, [])
+        self.assertEqual(c.out, [])
+
     def test_busy_relay_on_history_does_not_kill_the_turn(self):
         """Journey 2840007: the citizen wrote again at 12:02 and had no answer at 12:07."""
         from city_sdk.city import CapError

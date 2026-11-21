@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import specialist_guard as _guard
 import specialist_reports as _reports
 import specialist_text as _text
 import specialist_slots as _slots
@@ -428,6 +429,8 @@ async def main(need: Need, city: City) -> None:
     if message is None:
         return
     if message.sender == city.agent_id:
+        return
+    if _guard.untargeted_request(message, need, ("cardio", "specialist", "vis-card", "cardiol")):
         return
 
     text = message.text or need.summary

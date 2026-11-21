@@ -146,6 +146,8 @@ async def main(need: Need, city: City) -> None:
     message = city.inbound
     if message is None or message.sender == city.agent_id:
         return
+    if fc_ack.untargeted_request(message, need, ("family", "counsel", "consultor", "gynec", "ginec", "cons-gin")):
+        return
     fc_ack.resilient_history(city)
 
     text = message.text or need.summary

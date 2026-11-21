@@ -174,6 +174,8 @@ async def main(need: Need, city: City) -> None:
     message = city.inbound
     if message is None:
         return
+    if gp_ack.untargeted_request(message, need, ("gp", "general", "prescri", "ricett", "medico", "mmg")):
+        return
     gp_ack.resilient_history(city)
     text = message.text or need.summary
     # Emergency routing must win over clinical-advice refusal: a citizen can

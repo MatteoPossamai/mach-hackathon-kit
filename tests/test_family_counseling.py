@@ -116,6 +116,23 @@ class FamilyCounselingTest(unittest.TestCase):
         self.assertEqual(fc_slots.priority_deadline(fri, "D"), datetime(2026, 11, 25, 10, 0, tzinfo=UTC))
         self.assertIsNone(fc_slots.priority_deadline(fri, "P"))
 
+    def test_deploy_probe_ends_without_a_relay_read(self):
+        """custody.ack: the conformance probe (service=lab) must not wait on the relay or the Index."""
+        reads = []
+        probe = Message(type="need.request", sender="agent:t05/osp-x", recipient=FakeCity.agent_id, msg_id="p1",
+                        need_id="N-P", body={"service": "lab", "summary": "visit", "district": 8})
+        class Probe(FakeCity):
+            async def history(self, **kwargs):
+                reads.append("h")
+                return await super().history(**kwargs)
+            async def find(self, query):
+                reads.append("f")
+                return await super().find(query)
+        city = Probe(probe)
+        asyncio.run(fc.main(Need(service="lab", summary="visit", district=8, message=probe), city))
+        self.assertEqual(reads, [])
+        self.assertEqual(city.out, [])
+
     def test_slow_first_turn_sends_a_warm_note(self):
         """Journey 394: 4+ minutes of silence for 'Voglio prenotare visita per consultorio'."""
         import fc_ack
