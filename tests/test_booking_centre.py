@@ -706,3 +706,34 @@ class CrossAsstConsentTest(unittest.TestCase):
                 booking.language_fallback = orig
             self.assertEqual(called, [1], f'Failed to fall back for reply: {reply_text}')
             self.assertFalse(any(to == 'agent:p/h' for to, _ in city.out))
+
+
+class ReadWorldTest(unittest.TestCase):
+    def test_retries_only_missing_pages_and_deduplicates_slots(self):
+        orig_wait = booking.bc_flow.LEDGER_WAIT
+        booking.bc_flow.LEDGER_WAIT = 0.05
+        try:
+            class FlakyWorldCity(FakeCity):
+                def __init__(self):
+                    super().__init__([])
+                    self.page_calls = []
+                async def say(self, to, text):
+                    self.out.append((to, text))
+                    if to == 'city:ledger' and text.startswith('world '):
+                        page = booking.fields(text).get('page', '1')
+                        self.page_calls.append(page)
+                        if page == '1':
+                            self.rows.append(msg('city:ledger', 'slots page=1/3\nslot_id=s1 doctor_id=d-h1', self.agent_id, f'p1-{len(self.page_calls)}'))
+                        elif page == '2':
+                            self.rows.append(msg('city:ledger', 'slots page=2/3\nslot_id=s2 doctor_id=d-h1', self.agent_id, f'p2-{len(self.page_calls)}'))
+                        elif page == '3' and self.page_calls.count('3') >= 2:
+                            self.rows.append(msg('city:ledger', 'slots page=3/3\nslot_id=s3 doctor_id=d-h1\nslot_id=s1 doctor_id=d-h1', self.agent_id, f'p3-{len(self.page_calls)}'))
+            city = FlakyWorldCity()
+            items, _, _, ok = asyncio.run(booking.bc_flow.read_world(city, 'case-1', [], 'VIS-FIS'))
+            self.assertTrue(ok)
+            self.assertEqual(sorted(i['slot_id'] for i in items), ['s1', 's2', 's3'])
+            self.assertEqual(city.page_calls.count('1'), 1)
+            self.assertEqual(city.page_calls.count('2'), 1)
+            self.assertEqual(city.page_calls.count('3'), 2)
+        finally:
+            booking.bc_flow.LEDGER_WAIT = orig_wait

@@ -34,9 +34,11 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     prefs_task = asyncio.ensure_future(citizen_preferences(city, history, citizen))
     prefs_task.add_done_callback(lambda t: t.cancelled() or t.exception())
     # Read the prescription ourselves: a citizen or another agent cannot certify it.
-    await send(city, LEDGER, f"prescription prescription_number={number}")
-    await send(city, LEDGER, "agenda")
-    await send(city, LEDGER, "rules")
+    await asyncio.gather(
+        send(city, LEDGER, f"prescription prescription_number={number}"),
+        send(city, LEDGER, "agenda"),
+        send(city, LEDGER, "rules"),
+    )
     match = ("prescription_number", number)
     ready = lambda h: (fresh_reply(h, seen, "prescription", match) is not None or ledger_refused(h, seen, "prescription")) \
         and fresh_reply(h, seen, "agenda") is not None
@@ -94,24 +96,8 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         # Nobody speaks the language within the deadline, here or on the ring: a valid slot
         # with another doctor is better than no slot at all.
         prefs = {key: value for key, value in prefs.items() if key != "lang"}
-    items, doctors = [], {}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
-    items, doctors, history, read = await read_world(city, need_id, history, procedure)
-    for page in range(1, 1 if read else 21):
-        page_seen = {row.msg_id for row in history}
-        await send(city, LEDGER, f"world procedure={procedure} page={page}")
-        is_page = lambda m: m.sender == LEDGER and act(m.text) == "slots" and slots_page(m) == str(page)
-        history = await wait_for(city, need_id, lambda h: any(is_page(m) and m.msg_id not in page_seen for m in h))
-        response = (next((m for m in reversed(history) if is_page(m) and m.msg_id not in page_seen), None)
-                    or next((m for m in reversed(history) if is_page(m)), None))
-        if not response:
-            break
-        lines = response.text.splitlines()[1:]
-        doctors.update(doctor_attrs(lines))
-        items.extend(fields(line) for line in lines if "slot_id=" in line)
-        page_info = fields(response.text.splitlines()[0]).get("page", "1/1").split("/")
-        if len(page_info) != 2 or not page_info[1].isdigit() or page >= int(page_info[1]):
-            break
+    items, doctors, history, _ = await read_world(city, need_id, history, procedure)
     # Do not reoffer a slot that the responsible facility cancelled in this case.
     previous_offers = offers(history, city.agent_id, citizen)
     cancelled = set()
@@ -534,28 +520,48 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
 # --- the world in parallel: page 1, then every other page at once ------------------------
 
 async def read_world(city: City, need_id: str, history: list, procedure: str):
-    """Ledger world pages, asked together after page 1 tells how many there are."""
+    """Ledger world pages, asked in parallel after page 1, retrying only missing pages."""
     seen = {row.msg_id for row in history}
-    await send(city, LEDGER, f"world procedure={procedure} page=1")
-    page_of = lambda m: slots_page(m) if m.sender == LEDGER and act(m.text) == "slots" and m.msg_id not in seen else None
-    history = await wait_for(city, need_id, lambda h: any(page_of(m) == "1" for m in h))
-    first = next((m for m in reversed(history) if page_of(m) == "1"), None)
+    is_slots = lambda m: m.sender == LEDGER and act(m.text) == "slots"
+    page_of = lambda m: slots_page(m) if is_slots(m) and m.msg_id not in seen else None
+    first = None
+    for _ in range(2):
+        await send(city, LEDGER, f"world procedure={procedure} page=1")
+        history = await wait_for(city, need_id, lambda h: any(page_of(m) == "1" for m in h), LEDGER_WAIT)
+        first = next((m for m in reversed(history) if page_of(m) == "1"), None)
+        if first is not None:
+            break
+    if first is None:
+        first = next((m for m in reversed(history) if is_slots(m) and slots_page(m) == "1"), None)
     if first is None:
         return [], {}, history, False
     info = fields(first.text.splitlines()[0]).get("page", "1/1").split("/")
     total = int(info[1]) if len(info) == 2 and info[1].isdigit() else 1
     total = max(1, min(total, 20))
-    for page in range(2, total + 1):
-        await send(city, LEDGER, f"world procedure={procedure} page={page}")
     wanted = {str(page) for page in range(1, total + 1)}
     if total > 1:
+        await asyncio.gather(*(send(city, LEDGER, f"world procedure={procedure} page={page}") for page in range(2, total + 1)))
         history = await wait_for(city, need_id, lambda h: wanted <= {page_of(m) for m in h}, LEDGER_WAIT)
-    items, doctors, done = [], {}, set()
-    for row in history:
-        page = page_of(row)
-        if page in wanted and page not in done:
-            done.add(page)
-            lines = row.text.splitlines()[1:]
-            doctors.update(doctor_attrs(lines))
-            items.extend(fields(line) for line in lines if "slot_id=" in line)
+        missing = sorted(wanted - {page_of(m) for m in history}, key=int)
+        if missing:
+            await asyncio.gather(*(send(city, LEDGER, f"world procedure={procedure} page={page}") for page in missing))
+            history = await wait_for(city, need_id, lambda h: wanted <= {page_of(m) for m in h}, LEDGER_WAIT)
+    items, doctors, done, seen_slots = [], {}, set(), set()
+    for rows_pass in (
+        [r for r in reversed(history) if is_slots(r) and r.msg_id not in seen],
+        [r for r in reversed(history) if is_slots(r)],
+    ):
+        for row in rows_pass:
+            page = slots_page(row)
+            if page in wanted and page not in done:
+                done.add(page)
+                lines = row.text.splitlines()[1:]
+                doctors.update(doctor_attrs(lines))
+                for line in lines:
+                    if "slot_id=" in line:
+                        item = fields(line)
+                        sid = item.get("slot_id", "")
+                        if sid and sid not in seen_slots:
+                            seen_slots.add(sid)
+                            items.append(item)
     return items, doctors, history, done == wanted
