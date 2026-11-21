@@ -122,9 +122,26 @@ def preferences(history: list, citizen: str) -> dict[str, str]:
     return result
 
 
-async def citizen_preferences(city: City, history: list, citizen: str) -> dict[str, str]:
-    """Tokens win per key; the LLM (or explicit keywords, if it is down) fills the rest."""
+_PREFS_CACHE: dict[str, dict[str, str]] = {}
 
+
+async def citizen_preferences(city: City, history: list, citizen: str) -> dict[str, str]:
+    """Tokens win per key; the LLM (or explicit keywords, if it is down) fills the rest.
+
+    Cached on the citizen's own texts: the same case never pays the LLM twice."""
+
+    key = hashlib.sha256(("\x00".join([citizen] + [row.text for row in history
+                                                 if row.sender == citizen and row.text])).encode()).hexdigest()
+    if key in _PREFS_CACHE:
+        return dict(_PREFS_CACHE[key])
+    prefs = await _citizen_preferences(city, history, citizen)
+    if len(_PREFS_CACHE) > 2000:
+        _PREFS_CACHE.clear()
+    _PREFS_CACHE[key] = dict(prefs)
+    return prefs
+
+
+async def _citizen_preferences(city: City, history: list, citizen: str) -> dict[str, str]:
     tokens = preferences(history, citizen)
     prefs: dict[str, str] = {}
     if not (tokens.get("lang") and (tokens.get("gender") or tokens.get("gender_preference")) and tokens.get("days")):

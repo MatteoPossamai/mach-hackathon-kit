@@ -14,6 +14,10 @@ from bc_prefs import *  # noqa: F401,F403
 from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
 
+ACK_IT = "Ricevuto, verifico la ricetta e la disponibilità: le rispondo tra pochi istanti."
+ACK_EN = "Received: I am checking your referral and the availability, I will answer in a few moments."
+
+
 async def search(city: City, need_id: str, history: list, citizen: str, number: str,
                  exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False,
                  relax_lang: bool = False) -> None:
@@ -23,6 +27,12 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     """
     english = writes_english(history, citizen)
     seen = {row.msg_id for row in history}
+    if not any(row.sender == city.agent_id and row.recipient == citizen for row in history):
+        # Answer at once: the Ledger, the world pages and the ring take tens of seconds.
+        await send(city, citizen, ACK_EN if english else ACK_IT)
+    # The LLM reads the preferences while the Ledger verifies the prescription.
+    prefs_task = asyncio.ensure_future(citizen_preferences(city, history, citizen))
+    prefs_task.add_done_callback(lambda t: t.cancelled() or t.exception())
     # Read the prescription ourselves: a citizen or another agent cannot certify it.
     await send(city, LEDGER, f"prescription prescription_number={number}")
     await send(city, LEDGER, "agenda")
@@ -79,7 +89,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
                    + ("A waiting list is available for this priority." if english
                       else "Per questa priorità è disponibile la lista d'attesa."))
         return
-    prefs = await citizen_preferences(city, history, citizen)
+    prefs = await prefs_task
     if relax_lang:
         # Nobody speaks the language within the deadline, here or on the ring: a valid slot
         # with another doctor is better than no slot at all.
