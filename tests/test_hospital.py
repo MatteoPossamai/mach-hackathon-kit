@@ -91,6 +91,27 @@ class HospitalTest(unittest.TestCase):
         self.assertFalse(any('reason=slot_unavailable' in text for _, text in city.out), city.out)
         self.assertTrue(any(to == hospital.LEDGER and text.startswith('hold slot_id=S1') for to, text in city.out))
         self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out))
+    def test_slow_held_still_ends_with_the_receipt(self):
+        """A Ledger at 8-12 s: the held line came after the normal wait and no receipt went out."""
+        class Slow(City):
+            pending = None
+            reads = 0
+            async def history(self, **kwargs):
+                self.reads += 1
+                if self.pending and self.reads >= 12:
+                    self.rows.append(self.pending); self.pending = None
+                return list(self.rows)
+            async def say(self, to, text):
+                self.out.append((to, text))
+                self.rows.append(msg(self.agent_id, text, to, f'out-{len(self.rows)}'))
+                if to == hospital.LEDGER and text.startswith('hold '):
+                    self.reads = 0
+                    self.pending = msg(hospital.LEDGER, 'held hold_id=H1 slot_id=S1 fence=1', mid='held1')
+                elif to == hospital.LEDGER and text.startswith('commit '):
+                    self.rows.append(msg(hospital.LEDGER, 'committed hold_id=H1 booking_id=B1 ledger_ref=L1 slot_id=S1', mid='committed1'))
+        incoming = confirm(); city = Slow([incoming, slots()])
+        self.run_confirm(city, incoming)
+        self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out), city.out)
     def test_untargeted_typed_request_ends_without_a_relay_read(self):
         """Deploy conformance custody.ack (12:27, 12:32, 12:58): the probe need.request for
         service=lab got no reply anyway, but its one history read on a loaded relay took > 5 s,
