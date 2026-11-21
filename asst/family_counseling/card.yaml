@@ -1,7 +1,7 @@
 agent_id: agent:atp772whjkgd
 team: team:ltf-jecatt
 name: family_counseling
-version: 1.0.8
+version: 1.0.11
 cap_versions:
   - "1.0"
 profiles:
