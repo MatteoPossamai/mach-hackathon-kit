@@ -117,7 +117,7 @@ class HospitalTest(unittest.TestCase):
                  'at=2026-11-24T12:00:00+00:00 day=tue free=1')
         city = City([incoming, agenda, msg(hospital.LEDGER, slots)])
         asyncio.run(hospital._partner_request(city, incoming, city.rows))
-        self.assertEqual(city.out[-1], ('agent:team/booking', 'cancel reason=no_availability request_id=Q1'))
+        self.assertEqual(city.out[-1], ('agent:team/booking', 'cancel mach=1.3 reason=no_availability request_id=Q1'))
         city = City([incoming, agenda, msg(hospital.LEDGER, slots + '\ndoctor_id=doctor-h3 languages=it/ka')])
         asyncio.run(hospital._partner_request(city, incoming, city.rows))
         replies = [text for recipient, text in city.out if recipient == incoming.sender]

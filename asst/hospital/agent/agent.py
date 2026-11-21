@@ -306,6 +306,14 @@ def fields_of(text: str) -> dict[str, str]:
     return found
 
 
+def _naive_when(value: str) -> datetime | None:
+    """MACH-1.3 window times come with or without a zone: compare them as agenda wall time."""
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
 def _when(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -1251,8 +1259,16 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     requested_days = set(data.get("days", "").split("/")) - {""}
     lines = []
     tail = f" request_id={request_id}" if request_id else ""
+    # MACH-1.3 R4: the asker's window (after=, or earliest=, and deadline=), when given.
+    after = _naive_when(data.get("after") or data.get("earliest") or "")
+    until = _naive_when(data.get("deadline") or "")
     for slot in chosen:
         if requested_days and slot.get("day") not in requested_days:
+            continue
+        at = _naive_when(slot.get("at") or slot.get("agenda_date") or "")
+        if at is not None and after is not None and at < after:
+            continue
+        if at is not None and until is not None and at > until:
             continue
         doctor_id = slot["doctor_id"]
         known_languages, gender, _ = _DOCTORS[doctor_id.rsplit("-", 1)[-1]]
@@ -1264,13 +1280,13 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
         line += f" doctor_lang={language_list} doctor_gender={gender}"
         if procedure == "VIS-FIS":
             line += " wheelchair=true"
-        line += tail
+        line += tail + " lease_s=120 mach=1.3"
         if sum(len(offer) + 1 for offer in lines) + len(line) > 2000:
             break
         lines.append(line)
         if len(lines) == 5:
             break
-    await _say(city, peer, "\n".join(lines) or f"cancel reason=no_availability{tail}")
+    await _say(city, peer, "\n".join(lines) or f"cancel mach=1.3 reason=no_availability{tail}")
 
 
 def _en(chat: list[Message]) -> bool:

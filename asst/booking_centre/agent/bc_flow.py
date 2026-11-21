@@ -225,7 +225,9 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         deadline = (start.replace(hour=23, minute=59, second=59, microsecond=0) if priority == "U"
                     else add_agenda_days(start, {"B": 2, "D": 5}[priority]))
         criteria += f" deadline={deadline.replace(tzinfo=None).isoformat(timespec='seconds')}"
-    request = (f"need.request v=1.2 service_type={capability} procedure={procedure} "
+        # MACH-1.3 R4: the asker sets the window; a slot within the hour cannot be reached.
+        criteria += f" after={(now + timedelta(hours=1)).replace(tzinfo=None).isoformat(timespec='seconds')}"
+    request = (f"need.request v=1.2 mach=1.3 service_type={capability} procedure={procedure} "
                f"priority={priority} request_id={request_id}{criteria}")
     for peer in peers:
         if await send(city, peer, request):
@@ -236,6 +238,11 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         replied = lambda h: any(item["facility"] in contacted
                                 for item in matching_partner_offers(h, city.agent_id, citizen, prefs))
         history = await wait_for(city, need_id, replied, RING_WAIT)
+        if replied(history):
+            # MACH-1.3 R3: collect ~10 s after the first offer, then one message with all of them.
+            answered = lambda h: contacted <= {row.sender for row in h if row.sender in contacted
+                                                and act(row.text) in {"offer", "cancel", "unavailable"}}
+            history = await wait_for(city, need_id, answered, RING_COLLECT)
         if not replied(history):
             await language_fallback(city, need_id, history, citizen)
     else:
@@ -548,6 +555,7 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
 # --- language fallback: never "no slot" while a valid slot exists ------------------------
 
 # Partner teams answer in 30-60 s: a shorter watchdog drops their offers.
+RING_COLLECT = 10.0
 RING_WAIT = 150.0  # partners answer slowly under load; the citizen already has our "asking partners" note
 FALLEN_BACK: set[str] = set()
 NOTHING_IT = ("Finora non ho trovato posti confermati entro la scadenza della ricetta nella nostra ASST "
