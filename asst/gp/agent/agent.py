@@ -1706,3 +1706,26 @@ async def _handoff(city: City, chat: list[Message], number: str, procedure: str,
     await _say(city, _TEAM_BOOKING_CENTRE,
                f"handoff {token}{tail} returning=true Paziente che aspetta da tempo: gestire la "
                "prenotazione con precedenza appena scrive.")
+
+
+# --- a very worried citizen: same protocol prescription, plus a safety net ------------------
+# Priority never follows the tone (exaggerating pain gains nothing); the emergency route is
+# named for the person who is really scared, without replacing the protocol visit.
+
+_VERY_WORRIED = ("molto preoccupat", "tanta paura", "molta paura", "terrorizzat", "panico", "angoscia",
+                 "ho paura", "spaventatissim", "very worried", "really scared", "terrified", "panic",
+                 "so scared", "freaking out", "afraid")
+
+_rx_note_patience = _rx_note
+
+
+def _rx_note(
+    procedure: str, priority: str, *, english: bool, text: str = "", reminder: bool = False
+) -> str:
+    note = _rx_note_patience(procedure, priority, english=english, text=text, reminder=reminder)
+    if not any(word in (text or "").lower() for word in _VERY_WORRIED):
+        return note
+    return note + (" If before the visit the fear or the pain becomes strong, go to the emergency "
+                   "department or call 112 without waiting." if english else
+                   " Se prima della visita la paura o il dolore diventano forti, vada al pronto "
+                   "soccorso o chiami il 112 senza aspettare.")
