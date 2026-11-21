@@ -32,21 +32,21 @@ Posizionati nella root della repository (`mach-hackathon-kit/`):
 ### macOS / Linux
 
 ```bash
-# Live in terminale (aggiornamento ogni 5s)
-python3 logs/journey_watch.py --url "<ENDPOINT_JOURNEYS>" --interval 5
+# Live in terminale (usa già gli URL di default della console, aggiornamento ogni 5s)
+python3 logs/journey_watch.py --cookie-file ~/.config/city/console_auth --interval 5
 
-# Live + salvataggio su file di log (senza codici colore)
-python3 logs/journey_watch.py --url "<ENDPOINT_JOURNEYS>" --interval 5 --log-file logs/live.log
+# Oppure passando il cookie direttamente e salvando su file di log
+python3 logs/journey_watch.py --cookie "__Host-city_session=<VALORE>" --interval 5 --log-file logs/live.log
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
 # Con uv (consigliato su Windows se python/py non è nel PATH)
-uv run --no-project python logs/journey_watch.py --url "<ENDPOINT_JOURNEYS>" --interval 5 --log-file logs/live.log
+uv run --no-project python logs/journey_watch.py --cookie "__Host-city_session=<VALORE>" --interval 5 --log-file logs/live.log
 
-# Oppure con Python standard
-python logs/journey_watch.py --url "<ENDPOINT_JOURNEYS>" --interval 5 --log-file logs/live.log
+# Oppure con file cookie
+uv run --no-project python logs/journey_watch.py --cookie-file "$HOME\.config\city\console_auth" --interval 5
 ```
 
 ---
@@ -55,13 +55,15 @@ python logs/journey_watch.py --url "<ENDPOINT_JOURNEYS>" --interval 5 --log-file
 
 | Flag | Descrizione |
 |---|---|
-| `--url <URL>` | Endpoint JSON della lista journey (obbligatorio in modalità live). |
-| `--detail-url <TEMPLATE>` | Template opzionale se la lista non include `messages` (es. `https://.../journeys/{need_id}`). |
+| `--url <URL>` | Endpoint JSON lista journey (default: `https://projectnandaitaly.ai/v1/team/journeys`). |
+| `--detail-url <TEMPLATE>` | Template dettaglio (default: `https://projectnandaitaly.ai/v1/team/journeys/{need_id}`). |
+| `--limit <N>` | Numero di journey più recenti di cui scaricare i messaggi in parallelo (default: `15`, `0` = tutti). |
 | `--interval <SEC>` | Intervallo di polling in secondi (default: `5`). |
 | `--log-file <PATH>` | Salva tutto l'output anche su file (pulito, senza codici ANSI). |
 | `--team <NOME>` | Nome squadra per leggere `~/.config/city/teams/<NOME>/session` (default: `ltf-jecatt`). |
 | `--token <TOKEN>` | Bearer token esplicito (sovrascrive il file `session`). |
-| `--cookie <COOKIE>` | Header `Cookie` del browser, se l'endpoint richiede sessione cookie. |
+| `--cookie <COOKIE>` | Header `Cookie` del browser (`__Host-city_session=...`). |
+| `--cookie-file <PATH>` | Legge il cookie da file (es. `~/.config/city/console_auth` con `chmod 600`). |
 | `--need <TEST>` | Mostra solo i journey il cui `need_id` contiene `<TEST>` (es. `--need 0003450004`). |
 | `--max-chars <N>` | Tronca i messaggi oltre `N` caratteri (default: `0` = testo intero). |
 | `--summary-only` | Stampa solo stato, tempi e coda senza i testi dei messaggi. |

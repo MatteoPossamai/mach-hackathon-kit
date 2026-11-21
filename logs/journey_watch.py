@@ -21,6 +21,7 @@ Uso (Python 3.12+, solo stdlib):
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import re
@@ -431,12 +432,36 @@ def run_file(args: argparse.Namespace, log_fp: TextIO | None) -> int:
     return 0
 
 
+DEFAULT_LIST_URL = "https://projectnandaitaly.ai/v1/team/journeys"
+DEFAULT_DETAIL_URL = "https://projectnandaitaly.ai/v1/team/journeys/{need_id}"
+
+
 def run_live(args: argparse.Namespace, log_fp: TextIO | None) -> int:
     token = args.token or default_token(args.team)
     seen_msg_ids: dict[str, set[str]] = {}
     seen_state: dict[str, str] = {}
+    closed_cache: dict[str, dict[str, Any]] = {}
     states: dict[str, JourneyStats] = {}
     ticks = 0
+
+    def load_detail(item: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+        j = item.get("journey") if isinstance(item.get("journey"), dict) else item
+        need_id = str(j.get("need_id") or "")
+        if not need_id:
+            return "", item
+        if need_id in closed_cache:
+            return need_id, closed_cache[need_id]
+        if args.detail_url and not item.get("messages") and not args.summary_only:
+            try:
+                detail = fetch_json(args.detail_url.format(need_id=need_id), token=token, cookie=args.cookie)
+                if isinstance(detail, dict):
+                    dj = detail.get("journey") if isinstance(detail.get("journey"), dict) else detail
+                    if is_closed(str(dj.get("state") or "")):
+                        closed_cache[need_id] = detail
+                    return need_id, detail
+            except Exception:
+                pass
+        return need_id, item
 
     while True:
         try:
@@ -448,18 +473,31 @@ def run_live(args: argparse.Namespace, log_fp: TextIO | None) -> int:
             time.sleep(args.interval)
             continue
 
-        items = extract_journeys(payload)
-        changed = False
-        for item in items:
+        all_items = extract_journeys(payload)
+        # Update overall queue counts from the full list
+        for item in all_items:
             j = item.get("journey") if isinstance(item.get("journey"), dict) else item
-            need_id = str(j.get("need_id") or "")
-            if not need_id or (args.need and args.need not in need_id):
+            nid = str(j.get("need_id") or "")
+            if nid and nid not in states:
+                states[nid] = analyze_journey(item)
+
+        filtered = []
+        for item in all_items:
+            j = item.get("journey") if isinstance(item.get("journey"), dict) else item
+            nid = str(j.get("need_id") or "")
+            if not nid or (args.need and args.need not in nid):
                 continue
-            if args.detail_url and not item.get("messages"):
-                try:
-                    item = fetch_json(args.detail_url.format(need_id=need_id), token=token, cookie=args.cookie)
-                except Exception:
-                    pass
+            filtered.append(item)
+        if args.limit > 0:
+            filtered = filtered[:args.limit]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            loaded = list(pool.map(load_detail, filtered))
+
+        changed = False
+        for need_id, item in reversed(loaded):
+            if not need_id:
+                continue
             st = analyze_journey(item)
             states[need_id] = st
             seen = seen_msg_ids.setdefault(need_id, set())
@@ -485,11 +523,13 @@ def run_live(args: argparse.Namespace, log_fp: TextIO | None) -> int:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--url", help="Endpoint HTTP Journeys della console squadra")
-    p.add_argument("--detail-url", help="Template opzionale per il dettaglio (es. https://.../journeys/{need_id})")
+    p.add_argument("--url", default=DEFAULT_LIST_URL, help=f"Endpoint HTTP Journeys (default: {DEFAULT_LIST_URL})")
+    p.add_argument("--detail-url", default=DEFAULT_DETAIL_URL, help=f"Template dettaglio (default: {DEFAULT_DETAIL_URL})")
+    p.add_argument("--limit", type=int, default=15, help="Numero di journey più recenti di cui scaricare i messaggi (default: 15, 0=tutti)")
     p.add_argument("--team", default="ltf-jecatt", help="Nome squadra per leggere ~/.config/city/teams/<team>/session")
     p.add_argument("--token", default="", help="Bearer token esplicito (sovrascrive il file session)")
     p.add_argument("--cookie", default="", help="Header Cookie della console browser, se richiesto")
+    p.add_argument("--cookie-file", type=Path, help="File con header Cookie (es. ~/.config/city/console_auth)")
     p.add_argument("--interval", type=float, default=5.0, help="Secondi tra un poll e il successivo (default 5)")
     p.add_argument("--once", action="store_true", help="Stampa lo stato attuale ed esce")
     p.add_argument("--file", type=Path, help="Analizza subito un file JSON di journey")
@@ -499,12 +539,13 @@ def main() -> int:
     p.add_argument("--summary-only", action="store_true", help="Mostra solo riepilogo/coda senza i testi dei messaggi")
     args = p.parse_args()
 
+    if not args.cookie and args.cookie_file:
+        args.cookie = args.cookie_file.expanduser().read_text(encoding="utf-8").strip()
+
     log_fp = args.log_file.open("a", encoding="utf-8") if args.log_file else None
     try:
         if args.file:
             return run_file(args, log_fp)
-        if not args.url:
-            p.error("Specifica --url <ENDPOINT_JOURNEYS> oppure --file <FILE_JSON>")
         return run_live(args, log_fp)
     finally:
         if log_fp is not None:
