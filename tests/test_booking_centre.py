@@ -20,6 +20,7 @@ spec.loader.exec_module(booking)
 booking.bc_flow.RECEIPT_WAIT = 0.05
 booking.bc_flow.RING_WAIT = 0.05
 booking.bc_common.DEDUP_SECONDS = 0.0  # tests reuse texts across cases; DedupTest covers it
+booking.bc_flow.WORLD_TTL = 0.0  # each test builds its own world; WorldCacheTest covers the cache
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
@@ -1230,3 +1231,30 @@ class DedupTest(unittest.TestCase):
         self.assertEqual(len(a), 6)
         starts = {booking.bc_flow.rotate_for_case(items, f'N-{i}')[0]['slot_id'] for i in range(20)}
         self.assertGreater(len(starts), 3)
+
+
+class WorldCacheTest(unittest.TestCase):
+    def test_second_case_within_ttl_reuses_the_world_read(self):
+        """Every citizen re-read every world page (up to 20) from a slow, shared Ledger."""
+        booking.bc_flow.WORLD_CACHE.clear()
+        booking.bc_flow.WORLD_TTL = 30.0
+        try:
+            calls = []
+            class WorldCity(FakeCity):
+                async def say(self, to, text):
+                    await super().say(to, text)
+                    if to == 'city:ledger' and text.startswith('world '):
+                        calls.append(text)
+                        self.rows.append(msg('city:ledger', 'slots page=1/1\n'
+                            'slot_id=s1 doctor_id=doctor-h1 facility=agent:team/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat',
+                            self.agent_id, f'w-{len(self.rows)}'))
+            first = asyncio.run(booking.bc_flow.read_world(WorldCity([]), 'case-1', [], 'VIS-FIS'))
+            second = asyncio.run(booking.bc_flow.read_world(WorldCity([]), 'case-2', [], 'VIS-FIS'))
+            self.assertEqual(len(calls), 1, calls)
+            self.assertEqual([i['slot_id'] for i in second[0]], ['s1'])
+            self.assertTrue(first[3] and second[3])
+            other = asyncio.run(booking.bc_flow.read_world(WorldCity([]), 'case-3', [], 'VIS-CARD'))
+            self.assertEqual(len(calls), 2)
+        finally:
+            booking.bc_flow.WORLD_TTL = 0.0
+            booking.bc_flow.WORLD_CACHE.clear()

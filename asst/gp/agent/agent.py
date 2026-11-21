@@ -1615,7 +1615,7 @@ async def _say(city: City, to: str, text: str) -> bool:
 
 
 _RX_BUDGET = 20.0  # real seconds a turn may spend waiting for the Ledger; the push does the rest
-_RX_PATIENCE = 300.0  # then keep looking the prescription up for up to 5 minutes (the push can be lost)
+_RX_PATIENCE = 45.0  # then keep looking the prescription up for 45 s more (300 s held deliveries for minutes and the queue grew to 8 min)
 _RX_LATE_PAUSE = 5.0  # first pause of that slow loop; it doubles up to 30 s
 
 
