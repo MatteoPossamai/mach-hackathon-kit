@@ -1482,6 +1482,8 @@ async def _on_refused(
     ):
         code = (message.text or "").upper()
         reason = ("consent_missing" if "CONSENT" in code
+                  else "prescription_expired" if "EXPIRED" in code and "PRESCRIPTION" in code
+                  else "no_capacity" if "NO_CAPACITY" in code
                   else "slot_taken" if any(word in code for word in ("TAKEN", "CONFLICT", "NOT_FREE", "ALREADY", "FULL"))
                   else "hold_refused")
         await _say(city, target, f"cancel offer_id={offer_id} slot_id={slot} reason={reason}")
