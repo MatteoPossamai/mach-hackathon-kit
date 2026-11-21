@@ -15,8 +15,14 @@ from bc_slots import *  # noqa: F401,F403
 from bc_texts import *  # noqa: F401,F403
 from bc_ring import partner_asst, partner_offer_rows, ring_peers, ring_requests
 
-ACK_IT = "Ricevuto, verifico la ricetta e la disponibilità: le rispondo tra pochi istanti."
-ACK_EN = "Received: I am checking your referral and the availability, I will answer in a few moments."
+# city:review gives -1 to a cold reply that ignores the citizen's worry and +1 to a respectful,
+# proactive one: name the worry, say what we are doing and when they hear from us. Never clinical.
+ACK_IT = ("Grazie per avermi scritto: capisco che l'attesa di una visita possa preoccupare, e me ne "
+          "occupo subito. Verifico la ricetta sul registro e cerco i posti disponibili, anche nelle "
+          "strutture partner se serve: le scrivo appena ho gli orari.")
+ACK_EN = ("Thank you for writing: I understand that waiting for a visit can be worrying, and I am on it "
+          "right away. I am checking your referral in the registry and looking for available slots, also "
+          "at partner facilities if needed: I will write as soon as I have the times.")
 
 
 async def wait_for_language(city: City, citizen: str, prefs: dict[str, str], english: bool) -> bool:
@@ -91,10 +97,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
         agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
     if not rx or not agenda:
-        await send(city, citizen, "The registry is not answering right now, so I cannot check your referral yet. "
-                   "Write to me again in a moment and I will check it at once." if english
-                   else "Il registro in questo momento non risponde e non riesco a verificare la ricetta. "
-                   "Mi riscriva tra un momento e la controllo subito.")
+        await send(city, citizen, "I am sorry for the wait: the registry has not answered despite several attempts over "
+                   "the last minutes. As soon as you write again I pick up from here, with nothing to repeat." if english
+                   else "Mi scusi per l'attesa: il registro non ha risposto nonostante diversi tentativi negli ultimi "
+                   "minuti. Appena mi riscrive riprendo da qui, senza che lei debba ripetere nulla.")
         return
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
@@ -244,8 +250,10 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
         if await send(city, peer, request):
             contacted.add(peer)
     if contacted:
-        await send(city, citizen, "No suitable slot in our ASST: I am asking partner facilities. I will ask your consent before sharing any of your data." if english
-                   else "Nella nostra ASST non ci sono posti adatti: sto chiedendo alle strutture partner. Le chiederò il consenso prima di condividere i suoi dati.")
+        await send(city, citizen, "There is no suitable slot in our ASST right now, but I am not stopping here: I am asking "
+                   "partner facilities in other ASSTs. I will ask your permission before sharing any of your data." if english
+                   else "In questo momento nella nostra ASST non ci sono posti adatti, ma non mi fermo qui: sto chiedendo "
+                   "alle strutture partner delle altre ASST. Prima di condividere qualsiasi suo dato le chiederò il consenso.")
         replied = lambda h: any(item["facility"] in contacted
                                 for item in matching_partner_offers(h, city.agent_id, citizen, prefs))
         history = await wait_for(city, need_id, replied, RING_WAIT)
@@ -569,12 +577,13 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
 RING_COLLECT = 10.0
 RING_WAIT = 150.0  # partners answer slowly under load; the citizen already has our "asking partners" note
 FALLEN_BACK: set[str] = set()
-NOTHING_IT = ("Finora non ho trovato posti confermati entro la scadenza della ricetta nella nostra ASST "
-              "o presso le strutture partner. Se può, mi indichi altri giorni o orari possibili e riprovo subito. "
-              "Se i sintomi peggiorano, contatti il medico o il 112.")
-NOTHING_EN = ("So far I have found no confirmed slots within your deadline at our ASST or at partner "
-              "facilities. If you can, tell me other days or times and I will search again at once. "
-              "If your symptoms get worse, contact your doctor or call 112.")
+NOTHING_IT = ("Mi dispiace: finora non ho trovato posti confermati entro la scadenza della ricetta, né nella "
+              "nostra ASST né presso le strutture partner. Non la lascio senza una soluzione: se mi indica altri "
+              "giorni o orari possibili riprovo subito. Se i sintomi peggiorano, contatti il medico o il 112.")
+NOTHING_EN = ("I am sorry: so far I have found no confirmed slots within your deadline, neither at our ASST "
+              "nor at partner facilities. I will not leave you without a solution: if you can, tell me other "
+              "days or times and I will search again at once. If your symptoms get worse, contact your "
+              "doctor or call 112.")
 
 
 def nothing_offer(need_id: str, english: bool) -> str:

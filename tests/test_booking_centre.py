@@ -902,6 +902,35 @@ class CrossAsstConsentTest(unittest.TestCase):
         self.assertEqual(booking.cross_consent([cross, local, reply], me, 'citizen:1'), '')
 
 
+class WarmToneTest(unittest.TestCase):
+    """Warm, proactive texts must keep their act and stay non-clinical (city:review, sandbox)."""
+
+    def read_as(self, text):
+        from city_sdk.city import understood
+        m = Message(type='chat', sender='agent:x', recipient='citizen:1', msg_id='m', need_id='N', body={'text': text})
+        return understood(m).type
+
+    def test_texts_keep_their_act_and_are_not_clinical(self):
+        from city_sdk.city import clinical
+        flow = booking.bc_flow
+        receipt = {'agenda_date': '2026-12-04T10:30:00Z', 'procedure': 'VIS-FIS'}
+        cases = [
+            (booking.clean_prose('booking.receipt booking_id=b1 ledger_ref=r1 ' + booking.receipt_note(receipt, False)), 'booking.receipt'),
+            (booking.clean_prose('booking.receipt booking_id=b1 ledger_ref=r1 ' + booking.receipt_note(receipt, True)), 'booking.receipt'),
+            (booking.clean_prose(flow.nothing_offer('N-1', False)), 'offer'),
+            (booking.clean_prose(flow.nothing_offer('N-1', True)), 'offer'),
+        ]
+        for text, act in cases:
+            with self.subTest(text=text[:60]):
+                self.assertEqual(self.read_as(text), act)
+        for text in (flow.ACK_IT, flow.ACK_EN, flow.NOTHING_IT, flow.NOTHING_EN, booking.receipt_note(receipt, False)):
+            with self.subTest(text=text[:60]):
+                self.assertNotIn(self.read_as(booking.clean_prose(text)), {'offer', 'prescription', 'confirm', 'cancel', 'consent', 'hold'})
+                self.assertFalse(clinical(text), text)
+        self.assertIn('mezzi pubblici', booking.receipt_note(receipt, False))
+        self.assertIn('accesso senza barriere', booking.receipt_note(receipt, False))
+
+
 class SlowLedgerTest(unittest.TestCase):
     """A Ledger that stays silent for a while must delay the booking, never stop it (-1 no_booking)."""
 

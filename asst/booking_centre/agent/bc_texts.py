@@ -91,12 +91,14 @@ def receipt_note(offer: dict[str, str], english: bool) -> str:
     if english:
         what = f"Your {visit or 'appointment'} is confirmed" + (f" for {when}" if when else "") + ". "
         return (what + "Please bring your health card and the prescription number, and arrive 15 minutes "
-                "early for check-in at the front desk. If you can no longer come, or need help with "
-                "access, write to me and I will rearrange it.")
+                "early for check-in at the front desk. If it suits you, public transport is the easiest way "
+                "there: no parking to find and less traffic in the city. If you need step-free access or a "
+                "companion, or can no longer come, write to me and I will arrange it.")
     what = ("Prenotazione confermata" + (f": {visit}" if visit else "") + (f" {when}" if when else "") + ". ")
     return (what + "Porti la tessera sanitaria e il numero di ricetta e arrivi 15 minuti prima per il "
-            "check-in in accettazione. Se non può più venire o ha bisogno di assistenza per "
-            "l'accesso, mi scriva e la aiuto a spostare l'appuntamento.")
+            "check-in in accettazione. Se le è comodo, i mezzi pubblici sono il modo più semplice per "
+            "arrivare: niente parcheggio da cercare e meno traffico in città. Se le serve un accesso senza "
+            "barriere o un accompagnatore, o non può più venire, mi scriva e me ne occupo io.")
 
 
 def recap_note(booking_id: str, offer: dict[str, str], english: bool) -> str:
