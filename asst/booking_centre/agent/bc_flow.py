@@ -324,7 +324,8 @@ async def relay_facility_reply(city: City, need_id: str, history: list, citizen:
             note = ("Good news: the facility did book it in the end, this booking is valid and you can ignore later proposals. "
                     if writes_english(history, citizen) else
                     "Buone notizie: la struttura alla fine ha registrato la prenotazione, è valida e le proposte successive non servono. ") + note
-        if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']} {note}"):
+        ids = "".join(f" {key}={offer[key]}" for key in ("offer_id", "slot_id", "facility", "agenda_date") if offer.get(key))
+        if await send(city, citizen, f"booking.receipt booking_id={data['booking_id']} ledger_ref={data['ledger_ref']}{ids} {note}"):
             RELAYED.add(key)
             if row.sender in ACK_FACILITIES:
                 # A quick, inert answer to the facility: it closes the loop between agents.
@@ -379,7 +380,8 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
     if not await send(city, facility, text):
         # A 4xx is final: never resend it. Say so and offer what is still reachable.
         await send(city, citizen, f"cancel offer_id={selected['offer_id']} reason=facility_unavailable "
-                   "La struttura non è raggiungibile: cerco un'alternativa. / The facility is unreachable: I am looking for an alternative.")
+                   + ("The facility is unreachable: I am looking for an alternative." if writes_english(await city.history(need_id=need_id), citizen)
+                      else "La struttura non è raggiungibile: cerco un'alternativa."))
         await rebook(city, need_id, citizen, frozenset({selected["slot_id"], facility}))
         return
     history = await wait_for(city, need_id, answered, RECEIPT_WAIT)
@@ -394,7 +396,7 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         if forwarded and act(reply.text) == "cancel":
             await rebook(city, need_id, citizen, frozenset({selected["slot_id"]}))
     elif not sent(history, city.agent_id, citizen, "La struttura non ha ancora confermato"):
-        await send(city, citizen, PENDING_NOTE)
+        await send(city, citizen, PENDING_NOTE_EN if writes_english(history, citizen) else PENDING_NOTE_IT)
 
 
 FACILITY_ROLES = frozenset({"facility", "hospital", "specialist_care", "family_counseling"})

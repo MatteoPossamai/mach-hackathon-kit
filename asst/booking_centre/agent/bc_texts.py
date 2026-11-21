@@ -19,6 +19,8 @@ OFFER_NOTE_RELAXED = (
     "Non ci sono posti con tutte le preferenze indicate (medico o giorno): queste sono le "
     "alternative più vicine compatibili con la sua ricetta. Mi indichi quale preferisce."
 )
+PENDING_NOTE_IT = "La struttura non ha ancora confermato la prenotazione: le inoltro la ricevuta appena arriva."
+PENDING_NOTE_EN = "The facility has not confirmed yet: I will forward the receipt as soon as it arrives."
 PENDING_NOTE = (
     "La struttura non ha ancora confermato la prenotazione: le inoltro la ricevuta appena arriva. "
     "The facility has not confirmed yet: I will forward the receipt as soon as it arrives."
