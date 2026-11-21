@@ -37,8 +37,14 @@ async def _on_agent_availability_request(
         await _say(city, message.sender, " ".join(reason_parts))
         return
 
+    # MACH-1.1: acknowledge within seconds (once per request), the Ledger read below takes longer.
+    ack_token = f"request_id={request_id}" if request_id else ""
+    if not (ack_token and _we(chat, city.agent_id, ack_token, to=message.sender, word="ack")):
+        await _say(city, message.sender,
+                   "ack" + (f" {ack_token}" if ack_token else "") + " Ricevuto, verifico la disponibilità.")
     now, world, chat = await _fetch_agenda_and_world(city, message.need_id, chat, requested_proc)
     if now is None or world is None:
+        # The Ledger reply resumes this request (_resume_pending_offers): no cancel here.
         return
 
     # Scope cache by request_id so Level 6/7 rebooking requests always get fresh available slots.

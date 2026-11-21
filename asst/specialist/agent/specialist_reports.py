@@ -327,6 +327,12 @@ async def _on_reported(city: City, message: Message, chat: list[Message]) -> Non
         parts.append(note)
         await _say(city, citizen, " ".join(parts), allowed_citizen=citizen)
 
+    gp = "agent:c2ewegr2ea3v"
+    if not _we(chat, city.agent_id, token, to=gp, word="booking.notice"):
+        # Close the loop with the citizen's GP (collaboration); no clinical content travels.
+        await _say(city, gp, f"booking.notice booking_id={booking_id} Visita cardiologica conclusa, referto "
+                   "archiviato" + ("; ricetta di controllo emessa" if follow_up_rx else "") + ".")
+
     if follow_up_rx and not _we(
         chat, city.agent_id, f"prescription_number={follow_up_rx}", to=citizen, word="prescription"
     ):

@@ -558,6 +558,9 @@ async def _dispatch(city: City, message: Message, chat: list[Message], key: str)
     if message.sender.startswith("agent:"):
         if parsed.type == "cancel" or "cancel" in kind:
             return
+        if head in {"ack", "handoff", "booking.notice"}:
+            # A notice or an acknowledgement is not an availability request: no ping-pong.
+            return
         await _on_agent_availability_request(city, message, chat, key)
         return
 
