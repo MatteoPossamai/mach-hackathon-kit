@@ -39,6 +39,7 @@ async def main(need: Need, city: City) -> None:
     incoming = city.inbound
     if incoming is None or not incoming.need_id:
         return
+    resilient_history(city)
     if incoming.sender.startswith("citizen:") and (getattr(need, "is_emergency", False) or is_red_flag(incoming)):
         history = await city.history(need_id=incoming.need_id)
         if not sent(history, city.agent_id, incoming.sender, "escalate.emergency"):

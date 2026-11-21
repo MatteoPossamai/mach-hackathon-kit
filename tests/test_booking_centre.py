@@ -913,9 +913,12 @@ class SlowLedgerTest(unittest.TestCase):
         booking.bc_flow.LEDGER_WAIT = 0.05
         booking.bc_common.LEDGER_BACKOFF = (0.0, 0.01)
         booking.bc_common.LEDGER_PATIENCE = 5.0
+        self.saved_retry = booking.bc_common.HISTORY_RETRY
+        booking.bc_common.HISTORY_RETRY = (0.0, 0.0, 0.0)
 
     def tearDown(self):
         booking.bc_flow.LEDGER_WAIT, booking.bc_common.LEDGER_BACKOFF, booking.bc_common.LEDGER_PATIENCE = self.saved
+        booking.bc_common.HISTORY_RETRY = self.saved_retry
 
     def silent_city(self, silent):
         class SilentLedger(JourneyCity):
@@ -946,6 +949,34 @@ class SlowLedgerTest(unittest.TestCase):
             await city.receive('citizen:1', f"confirm offer_id={booking.fields(offer)['offer_id']} consent_ref=c1")
             await city.receive('agent:team/h', 'booking.receipt booking_id=b1 ledger_ref=r1')
             self.assertTrue(any(to == 'citizen:1' and t.startswith('booking.receipt booking_id=b1') for to, t in city.out))
+        asyncio.run(run())
+
+    def test_relay_errors_while_polling_do_not_crash_the_turn(self):
+        async def run():
+            import httpx
+            from city_sdk.city import CapError
+            city = self.silent_city({})
+            real_history = city.history
+            calls = {'n': 0}
+            async def flaky_history(*, need_id):
+                calls['n'] += 1
+                if calls['n'] in (1, 3, 6, 9):
+                    raise CapError('UPSTREAM_TIMEOUT', 'relay history') if calls['n'] % 2 else httpx.ReadTimeout('slow')
+                return await real_history(need_id=need_id)
+            city.history = flaky_history
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            offer = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer '))
+            self.assertIn('slot_id=s1', offer)
+        asyncio.run(run())
+
+    def test_second_request_is_acknowledged_at_once(self):
+        async def run():
+            city = self.silent_city({})
+            city.rows.append(msg(city.agent_id, 'Ricevuto, verifico la ricetta.', 'citizen:1', 'old-ack'))
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=it')
+            to_citizen = [t for to, t in city.out if to == 'citizen:1']
+            self.assertEqual(to_citizen[0], booking.bc_flow.ACK_IT)
+            self.assertTrue(any(t.startswith('offer ') for t in to_citizen))
         asyncio.run(run())
 
     def test_world_silent_past_patience_goes_to_partners_not_a_stall(self):

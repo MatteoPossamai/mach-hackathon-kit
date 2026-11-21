@@ -132,15 +132,47 @@ async def send(city: City, recipient: str, text: str) -> bool:
         return False
 
 
+HISTORY_POLL = 1.0  # each history read is up to 5 signed relay pages: poll gently under load
+HISTORY_RETRY = (1.0, 2.0, 4.0)
+
+
+def resilient_history(city: City) -> City:
+    """Make every ``city.history`` of this turn retry a busy relay instead of crashing the turn."""
+    if getattr(city, "_bc_resilient", False):
+        return city
+    raw = city.history
+
+    async def history(*args, **kwargs):
+        for pause in HISTORY_RETRY:
+            try:
+                return await raw(*args, **kwargs)
+            except Exception:  # noqa: BLE001 - CapError, httpx timeouts: transient under load
+                await asyncio.sleep(pause)
+        return await raw(*args, **kwargs)
+
+    city.history = history
+    city._bc_resilient = True
+    return city
+
+
 async def wait_for(city: City, need_id: str, predicate, seconds: float = 6.0) -> list:
-    """Ledger replies may be in history without opening a new agent turn."""
+    """Ledger replies may be in history without opening a new agent turn.
+
+    A relay timeout or 429/5xx while polling used to escape the turn: the brain crashed, the
+    citizen got silence and the redelivered message ran the brain twice (duplicate offers).
+    Keep the last good read and poll again instead."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + seconds
+    history = None
     while True:
-        history = await city.history(need_id=need_id)
-        if predicate(history) or loop.time() >= deadline:
+        try:
+            history = await city.history(need_id=need_id)
+        except Exception:  # noqa: BLE001 - CapError, httpx timeouts: the relay is busy, not final
+            if history is None and loop.time() >= deadline:
+                history = await city.history(need_id=need_id)
+        if history is not None and (predicate(history) or loop.time() >= deadline):
             return history
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(max(0.05, min(HISTORY_POLL, deadline - loop.time())))
 
 
 # A silent Ledger is load, not an answer: S counts every slot, so giving up costs -1 no_booking.

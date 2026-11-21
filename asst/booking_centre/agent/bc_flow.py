@@ -45,8 +45,12 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     """
     english = writes_english(history, citizen)
     seen = {row.msg_id for row in history}
-    if not any(row.sender == city.agent_id and row.recipient == citizen for row in history):
-        # Answer at once: the Ledger, the world pages and the ring take tens of seconds.
+    inbound = getattr(city, "inbound", None)
+    after = next((i for i, row in enumerate(history) if inbound is not None and row.msg_id == inbound.msg_id), -1)
+    answered = any(row.sender == city.agent_id and row.recipient == citizen for row in history[after + 1:])
+    if not answered:
+        # Answer every citizen request at once (not only the first contact): under load the
+        # Ledger, the world pages and the ring take minutes, and silence reads as a lost case.
         await send(city, citizen, ACK_EN if english else ACK_IT)
     # The LLM reads the preferences while the Ledger verifies the prescription.
     prefs_task = asyncio.ensure_future(citizen_preferences(city, history, citizen))
