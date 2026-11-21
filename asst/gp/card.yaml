@@ -1,7 +1,7 @@
 agent_id: agent:c2ewegr2ea3v
 team: team:ltf-jecatt
 name: gp
-version: 1.0.23
+version: 1.0.24
 cap_versions:
   - "1.0"
 profiles:
