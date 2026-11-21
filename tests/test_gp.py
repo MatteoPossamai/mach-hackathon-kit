@@ -64,6 +64,53 @@ class GPTest(unittest.TestCase):
                 prescriptions = [text for to, text in c.out if to == 'citizen:1' and text.startswith('prescription ')]
                 self.assertEqual(bool(prescriptions), mode == 'success')
                 self.assertTrue(any(to == gp.LEDGER and text.startswith('prescribe ') for to, text in c.out))
+                if mode == 'success':
+                    self.assertFalse(any(to == gp.LEDGER and text.startswith('prescription ') for to, text in c.out))
+    def test_prescription_lookup_recovers_a_missing_write_reply(self):
+        class ReadbackCity(City):
+            available_after = 1
+            lookups = 0
+
+            async def say(self, to, text):
+                await super().say(to, text)
+                if to == gp.LEDGER and text.startswith('prescription '):
+                    self.lookups += 1
+                    if self.lookups == self.available_after:
+                        number = gp.fields_of(text)['prescription_number']
+                        self.rows.append(msg(gp.LEDGER, f'prescription prescription_number={number} '
+                                             'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
+
+        for available_after in (1, 2):
+            with self.subTest(available_after=available_after):
+                city = ReadbackCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
+                city.available_after = available_after
+                self.run_gp(city)
+                self.assertEqual(city.lookups, available_after)
+                self.assertEqual(sum(to == gp.LEDGER and text.startswith('prescribe ')
+                                     for to, text in city.out), 1)
+                if available_after == 1:
+                    actions = [(to, text.split()[0]) for to, text in city.out]
+                    self.assertEqual(actions[:3], [(gp.LEDGER, 'prescribe'), (gp.LEDGER, 'prescription'),
+                                                   ('citizen:1', 'prescription')])
+                self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ')
+                                    for to, text in city.out))
+                city.inbound = next(row for row in city.rows if row.sender == gp.LEDGER)
+                self.run_gp(city)
+                self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
+                                     for to, text in city.out), 1)
+
+    def test_lookup_requires_issued_matching_prescription(self):
+        expected = dict(prescription_number='R1', patient='citizen:1', procedure='VIS-FIS', priority='B')
+        for sender, data in (
+            ('citizen:1', 'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'),
+            (gp.LEDGER, 'patient=citizen:2 procedure=VIS-FIS priority=B state=issued'),
+            (gp.LEDGER, 'procedure=VIS-FIS priority=B state=issued'),
+            (gp.LEDGER, 'patient=citizen:1 procedure=VIS-CARD priority=B state=issued'),
+            (gp.LEDGER, 'patient=citizen:1 procedure=VIS-FIS priority=B state=expired'),
+        ):
+            with self.subTest(sender=sender, data=data):
+                self.assertFalse(gp.confirmation(msg(sender, f'prescription prescription_number=R1 {data}'), expected))
+
     def test_prescription_renewal_requires_owner_and_ledger_confirmation(self):
         for owner in ('citizen:1', 'citizen:other'):
             with self.subTest(owner=owner):

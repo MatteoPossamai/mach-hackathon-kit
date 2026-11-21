@@ -11,12 +11,16 @@ import asyncio
 import logging
 import os
 import re
+import sys
 from collections import OrderedDict
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from city_sdk.city import LEDGER, CapError, City, Message, Need, OutOfScope, clinical, understood
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gp_prescriptions import confirmation, fields_of, latest_confirmation, wait_for_result
 
 ROLES = ("booking_centre", "gp", "hospital", "specialist_care", "family_counseling")
 _MAX_PAGE = 8
@@ -144,6 +148,7 @@ _LOG = logging.getLogger("care")
 # the case history and never opens a turn. Wait briefly and read it back from history.
 _PULL_TRIES = 24
 _PULL_PAUSE = 0.25
+_PRESCRIPTIONS_IN_FLIGHT: set[tuple[str, str, str]] = set()
 # Needs whose sent offers this process remembers; the oldest is forgotten first.
 _SENT_NEEDS = 4096
 
@@ -288,18 +293,6 @@ def words(text: str) -> set[str]:
 def first_word(text: str) -> str:
     parts = text.split()
     return parts[0].strip(".,;:!?()\"'").lower() if parts else ""
-
-
-def fields_of(text: str) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for token in text.replace(",", " ").split():
-        key, eq, value = token.partition("=")
-        if not eq or not key or not value:
-            continue
-        value = value.strip(".,;:!?")
-        if key not in found and value:
-            found[key] = value
-    return found
 
 
 def _when(value: str) -> datetime | None:
@@ -546,10 +539,14 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         return
     if message.sender == LEDGER:
         if first_word(message.text) == "prescription":
+            issued = _our_rx(chat, agent)
+            if issued:
+                await _announce(city, message, chat, agent)
+                return
             original = fields_of(message.text).get("prescription_number", "")
             request = next((row for row in reversed(chat) if row.sender.startswith("citizen:")
                             and fields_of(row.text).get("prescription_number") == original), None)
-            if request and original and not _our_rx(chat, agent):
+            if request and original:
                 await _renew(city, request, chat, original)
             return
         await _announce(city, message, chat, agent)
@@ -563,7 +560,7 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
     ours = _our_rx(chat, agent)
     if ours.get("prescription_number"):
         # Sending a Ledger request is not proof that it accepted the write.
-        confirmed = _latest(chat, "prescribed", f"prescription_number={ours['prescription_number']}")
+        confirmed = latest_confirmation(chat, ours)
         if confirmed:
             await _announce(city, confirmed, chat, agent, repeat=True)
         else:
@@ -620,7 +617,9 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         ):
             await _say(city, message.sender, "Non riesco a contattare il registro per la ricetta. Riprovi tra poco.")
             return
-    await _finish_prescription(city, message, chat, number)
+    await _finish_prescription(city, message, chat, {
+        "prescription_number": number, "patient": message.sender, "procedure": procedure, "priority": priority,
+    })
 
 
 def _english(text: str) -> bool:
@@ -671,20 +670,6 @@ async def _symptom_llm(city: City, text: str) -> str | None:
     return content if content in _LLM_CODES else None
 
 
-async def _finish_prescription(city: City, message: Message, chat: list[Message], number: str) -> None:
-    """A Relay acceptance is not a Ledger write; wait for the authoritative result."""
-    result = await _await_line(city, message.need_id, chat, "prescribed",
-                               f"prescription_number={number}", op="prescribe")
-    if result is None:
-        await _say(city, message.sender, "I am checking the prescription with the registry; I will answer as soon as it is confirmed." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
-        return
-    reply, fresh = result
-    if first_word(reply.text) == "refused":
-        await _say(city, message.sender, "Il registro non ha confermato la ricetta. Ci contatti per assistenza.")
-        return
-    await _announce(city, reply, fresh, city.agent_id)
-
-
 async def _renew(city: City, message: Message, chat: list[Message], original: str) -> None:
     """Renew only after the Ledger identifies the original prescription and owner."""
     token = f"prescription_number={original}"
@@ -714,29 +699,26 @@ async def _renew(city: City, message: Message, chat: list[Message], original: st
     if not await _say(city, LEDGER, f"prescribe patient={message.sender} procedure={procedure} priority={priority} prescription_number={number}"):
         await _say(city, message.sender, "Non riesco a contattare il registro per il rinnovo. Riprovi tra poco.")
         return
-    await _finish_prescription(city, message, chat, number)
+    await _finish_prescription(city, message, chat, {
+        "prescription_number": number, "patient": message.sender, "procedure": procedure, "priority": priority,
+    })
 
 
 async def _announce(city: City, message: Message, chat: list[Message], agent: str, *, repeat: bool = False) -> None:
     head = first_word(message.text)
-    if message.sender != LEDGER:
+    if message.sender != LEDGER or _escalated(chat, agent):
         return
     ours = _our_rx(chat, agent)
     if head == "refused" and "prescribe" in words(message.text) and ours.get("patient"):
         await _say(city, ours["patient"], "Il registro non ha confermato la ricetta. Ci contatti per assistenza.")
         return
-    if head != "prescribed":
+    if not confirmation(message, ours):
         return
     fields = fields_of(message.text)
-    number = fields.get("prescription_number", "")
-    citizen = ours.get("patient", "")
-    if not number or number != ours.get("prescription_number") or not citizen:
-        return
-    if fields.get("patient", citizen) != citizen:
-        return
-    if any(fields.get(key) and fields[key] != ours.get(key) for key in ("procedure", "priority")):
-        return
+    number = ours["prescription_number"]
+    citizen = ours["patient"]
     if not repeat and _we(chat, agent, f"prescription_number={number}", to=citizen, word="prescription"):
+        await _handoff(city, chat, number, ours.get("procedure", ""), ours.get("priority", ""))
         return
     parts = ["prescription", f"prescription_number={number}"]
     procedure = fields.get("procedure") or ours.get("procedure")
@@ -747,7 +729,16 @@ async def _announce(city: City, message: Message, chat: list[Message], agent: st
         parts.append(f"priority={priority}")
     citizen_text = next((row.text for row in reversed(chat) if row.sender == citizen), "")
     parts.append(_rx_note(procedure or "", priority or "", english=_english(citizen_text), text=citizen_text))
-    await _say(city, citizen, " ".join(parts))
+    key = (agent, message.need_id or "", number)
+    if key in _PRESCRIPTIONS_IN_FLIGHT:
+        return
+    _PRESCRIPTIONS_IN_FLIGHT.add(key)
+    try:
+        sent = await _say(city, citizen, " ".join(parts))
+        if sent and not repeat:
+            await _handoff(city, chat, number, procedure or "", priority or "")
+    finally:
+        _PRESCRIPTIONS_IN_FLIGHT.discard(key)
 
 # --- centro prenotazioni and consultorio -------------------------------------------------------
 
@@ -1581,38 +1572,32 @@ async def _say(city: City, to: str, text: str) -> bool:
     return False
 
 
-_finish_prescription_first = _finish_prescription
-
-
-async def _finish_prescription(city: City, message: Message, chat: list[Message], number: str) -> None:
-    """First wait as before; if the Ledger is slow, tell the citizen and keep reading the case."""
-
-    result = await _await_line(city, message.need_id, chat, "prescribed",
-                               f"prescription_number={number}", op="prescribe")
-    if result is None:
-        english = _english(next((r.text for r in reversed(chat) if r.sender == message.sender), ""))
+async def _finish_prescription(
+    city: City, message: Message, chat: list[Message], request: dict[str, str],
+) -> None:
+    """Recover an issued prescription even if the Ledger's write reply was delayed."""
+    seen = {row.msg_id for row in chat}
+    need_id = message.need_id
+    lookup = f"prescription prescription_number={request['prescription_number']}"
+    reply, fresh = await wait_for_result(city, need_id, chat, request, (0, _PULL_PAUSE, 2 * _PULL_PAUSE), seen=seen)
+    if reply is None and not _escalated(fresh, city.agent_id):
+        await _say(city, LEDGER, lookup)
+        reply, fresh = await wait_for_result(city, need_id, fresh, request, (0, 2 * _PULL_PAUSE, 4 * _PULL_PAUSE), seen=seen)
+    if reply is None and not _escalated(fresh, city.agent_id):
+        english = _english(message.text)
         await _say(city, message.sender,
-                   "The registry is slow right now: I am waiting for it to record your referral and I "
-                   "will send you the number as soon as it is confirmed." if english else
-                   "Il registro in questo momento è lento: sto aspettando che registri la ricetta e le "
-                   "mando il numero appena è confermata.")
-        for _ in range(3):
-            result = await _await_line(city, message.need_id, chat, "prescribed",
-                                       f"prescription_number={number}", op="prescribe")
-            if result is not None:
-                break
-        if result is None:
-            return
-    reply, fresh = result
-    if first_word(reply.text) == "refused":
-        english = _english(next((r.text for r in reversed(chat) if r.sender == message.sender), ""))
-        await _say(city, message.sender,
-                   "The registry did not record the referral. Write to me again and I will issue it "
-                   "once more; in an emergency call 112." if english else
-                   "Il registro non ha registrato la ricetta. Mi riscriva e la emetto di nuovo; in caso "
-                   "di urgenza chiami il 112.")
-        return
-    await _announce(city, reply, fresh, city.agent_id)
+                   "I am waiting for the registry to confirm your referral. I will send you the number once it is recorded."
+                   if english else
+                   "Sto aspettando la conferma del registro. Le invierò il numero appena la ricetta sarà registrata.")
+        backoff = tuple(ticks * _PULL_PAUSE for ticks in (4, 8, 12))
+        reply, fresh = await wait_for_result(city, need_id, fresh, request, backoff, seen=seen)
+    if reply is None and not _escalated(fresh, city.agent_id):
+        # A lookup can reach the Ledger before the preceding write has been processed.
+        await _say(city, LEDGER, lookup)
+        backoff = tuple(ticks * _PULL_PAUSE for ticks in (16, 20, 24))
+        reply, fresh = await wait_for_result(city, need_id, fresh, request, backoff, seen=seen)
+    if reply is not None:
+        await _announce(city, reply, fresh, city.agent_id)
 
 
 _rx_note_care = _rx_note
@@ -1631,21 +1616,3 @@ def _rx_note(
     return (note + " Se nella nostra ASST non c'è un orario adatto, il centro prenotazioni chiede "
             "anche alle strutture partner di altre ASST, sempre con il suo permesso prima; se una "
             "struttura salta, le trova un nuovo orario entro la stessa scadenza.")
-
-
-# --- collaboration: hand the issued prescription to our booking centre -------------------
-# The booking centre ignores a hand-off as a request and only acknowledges it, so this is a
-# real agent-to-agent exchange that never writes to the citizen. No citizen data travels.
-
-_announce_plain = _announce
-
-
-async def _announce(city: City, message: Message, chat: list[Message], agent: str, *, repeat: bool = False) -> None:
-    await _announce_plain(city, message, chat, agent, repeat=repeat)
-    if message.sender != LEDGER or first_word(message.text) != "prescribed" or repeat:
-        return
-    ours = _our_rx(chat, agent)
-    number = fields_of(message.text).get("prescription_number", "")
-    if not number or number != ours.get("prescription_number"):
-        return
-    await _handoff(city, chat, number, ours.get("procedure", ""), ours.get("priority", ""))
