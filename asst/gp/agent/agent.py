@@ -147,8 +147,8 @@ _RX = re.compile(r"^prescription_number-[A-Z0-9-]{4,40}$")
 _LOG = logging.getLogger("care")
 # The Relay accepts a ledger reply and then the agent rejects the push, so the reply sits in
 # the case history and never opens a turn. Wait briefly and read it back from history.
-_PULL_TRIES = 24
-_PULL_PAUSE = 0.25
+_PULL_TRIES = 8  # 0.25 s x 24 hammered the relay (429s for the whole team); same window
+_PULL_PAUSE = 1.0
 _PRESCRIPTIONS_IN_FLIGHT: set[tuple[str, str, str]] = set()
 # Needs whose sent offers this process remembers; the oldest is forgotten first.
 _SENT_NEEDS = 4096

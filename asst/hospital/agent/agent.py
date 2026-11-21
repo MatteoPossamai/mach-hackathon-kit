@@ -143,8 +143,11 @@ _RX = re.compile(r"^prescription_number-[A-Z0-9-]{4,40}$")
 _LOG = logging.getLogger("care")
 # The Relay accepts a ledger reply and then the agent rejects the push, so the reply sits in
 # the case history and never opens a turn. Wait briefly and read it back from history.
-_PULL_TRIES = 24
-_PULL_PAUSE = 0.25
+# Each history read pulls up to 5 signed relay pages. 0.25 s x 24 per wait, up to 9 waits per
+# ring request from 25 other ASSTs, saturated the pod (deploy health p99 > 0.3 s three times on
+# 21/11 12:2x) and spent the team's relay budget (429s). Same window, a quarter of the reads.
+_PULL_TRIES = 8
+_PULL_PAUSE = 1.0
 _HOSPITAL_LOCKS: dict[str, asyncio.Lock] = {}
 # Needs whose sent offers this process remembers; the oldest is forgotten first.
 _SENT_NEEDS = 4096
