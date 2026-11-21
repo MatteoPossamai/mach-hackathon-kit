@@ -46,4 +46,22 @@ class SpecialistEmergencyTest(unittest.TestCase):
             'procedure': 'VIS-CARD', 'priority': 'B'
         }))
 
+    def test_slow_ledger_declines_ring_requests_without_queueing_reads(self):
+        """15:43: 19 msgs/min, each ring request added Ledger reads to our ASST's slow queue."""
+        import specialist_guard as guard
+        guard._LEDGER_SLOW_UNTIL[0] = 0.0
+        try:
+            guard.mark_ledger_slow()
+            ring = Message(type='chat', sender='agent:other/bc', msg_id='ring-s1', need_id='N-RS',
+                           body={'text': 'need.request service_type=specialist_care.cardiology procedure=VIS-CARD priority=B request_id=R5'})
+            city = City(); city.inbound = ring
+            async def history(**kwargs): return [ring]
+            city.history = history
+            asyncio.run(specialist._on_agent_availability_request(city, ring, [ring], 'N-RS'))
+            self.assertFalse([t for to, t in city.out if to == 'city:ledger'], city.out)
+            self.assertTrue(any(to == 'agent:other/bc' and t.startswith('cancel request_id=R5 reason=no_availability')
+                                for to, t in city.out), city.out)
+        finally:
+            guard._LEDGER_SLOW_UNTIL[0] = 0.0
+
 if __name__ == '__main__': unittest.main()

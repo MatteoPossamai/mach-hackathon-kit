@@ -44,9 +44,15 @@ async def _on_agent_availability_request(
             ack_token and _we(chat, city.agent_id, ack_token, to=message.sender, word="ack")):
         await _say(city, message.sender,
                    "ack" + (f" {ack_token}" if ack_token else "") + " Ricevuto, verifico la disponibilità.")
+    if _early.ledger_slow() and (_agenda_now(chat) is None or _latest_slots(chat) is None):
+        # A slow Ledger answers after the request is long dead: say so now, add nothing to its queue.
+        await _say(city, message.sender, "cancel" + (f" request_id={request_id}" if request_id else "")
+                   + " reason=no_availability Registro temporaneamente non disponibile.")
+        return
     now, world, chat = await _fetch_agenda_and_world(city, message.need_id, chat, requested_proc)
     if now is None or world is None:
         # The Ledger reply resumes this request (_resume_pending_offers): no cancel here.
+        _early.mark_ledger_slow()
         return
 
     # Scope cache by request_id so Level 6/7 rebooking requests always get fresh available slots.

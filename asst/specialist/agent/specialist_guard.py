@@ -67,3 +67,19 @@ async def early_agent_ack(city, message, say, text: str) -> bool:
     except Exception:  # noqa: BLE001 - a courtesy note never fails the turn
         return False
     return True
+
+
+# Our ASST's Ledger answered 30+ min late at 15:30 while other ASSTs booked: each ring request of
+# another booking centre added an agenda and a world read to that queue (19 msgs/min at 15:43).
+LEDGER_SLOW_FOR = 300.0
+_LEDGER_SLOW_UNTIL = [0.0]
+
+
+def mark_ledger_slow() -> None:
+    import time as _t
+    _LEDGER_SLOW_UNTIL[0] = _t.monotonic() + LEDGER_SLOW_FOR
+
+
+def ledger_slow() -> bool:
+    import time as _t
+    return _t.monotonic() < _LEDGER_SLOW_UNTIL[0]
