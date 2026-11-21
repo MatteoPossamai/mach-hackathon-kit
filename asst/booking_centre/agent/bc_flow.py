@@ -54,7 +54,10 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     inbound = getattr(city, "inbound", None)
     after = next((i for i, row in enumerate(history) if inbound is not None and row.msg_id == inbound.msg_id), -1)
     answered = any(row.sender == city.agent_id and row.recipient == citizen for row in history[after + 1:])
-    if not answered:
+    first_contact = not any(row.sender == city.agent_id and row.recipient == citizen for row in history)
+    from_citizen = inbound is not None and inbound.sender == citizen
+    # Thank the citizen only for their own message (a partner or facility turn is not "writing").
+    if (from_citizen and not answered) or (inbound is None and first_contact):
         # Answer every citizen request at once (not only the first contact): under load the
         # Ledger, the world pages and the ring take minutes, and silence reads as a lost case.
         await send(city, citizen, ACK_EN if english else ACK_IT)
@@ -105,6 +108,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
     now = agenda_clock(agenda)
+    agenda_read = _clock.monotonic()
     owner = prescription.get("patient") or prescription.get("citizen")
     if owner and owner != citizen:
         await send(city, citizen, "Non riesco a verificare che questa ricetta sia la sua. Ci contatti per assistenza.")
@@ -172,6 +176,9 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     items = [enrich(item, doctors) for item in items
              if item.get("slot_id") not in exclude and item.get("facility") not in exclude
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
+    # The agenda runs 60x: the Ledger waits, the world pages and the LLM took minutes, i.e.
+    # hours of agenda, and slots that were "future" at the read came back reason=past.
+    now = now + timedelta(minutes=_clock.monotonic() - agenda_read)
     priority_start = booking_agenda_start(history, city.agent_id, number, now)
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs, priority_start=priority_start)
     # A slot another case is confirming is still better than a waiting list: the Ledger
@@ -198,8 +205,30 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     # Keep a single message: the citizen chooses within the turn of this one message.
     lines = pick_offers(candidates, number, priority, 1950 - len(note))
     if lines:
+        # Another pod (10 replicas) or a redelivered turn may have answered this same citizen
+        # message with these same offers: the in-memory dedup cannot see it, the history can.
+        try:
+            fresh = await city.history(need_id=need_id)
+        except Exception:  # noqa: BLE001 - a busy relay must not cost the citizen the offers
+            fresh = history
+        if same_offers_sent(fresh, city.agent_id, citizen, inbound, lines):
+            return
         if await send(city, citizen, "\n".join(lines) + "\n" + note):
             mark(OFFERED, lines, need_id)
+
+
+def same_offers_sent(history: list, agent: str, citizen: str, inbound, lines: list) -> bool:
+    """True when, after this inbound message, we already sent an offer message with these ids."""
+    ids = {fields(line).get("offer_id") for line in lines}
+    after = next((i for i, row in enumerate(history) if inbound is not None and row.msg_id == inbound.msg_id), -1)
+    if after < 0:
+        return False
+    for row in history[after + 1:]:
+        if row.sender == agent and row.recipient == citizen and act(row.text) == "offer":
+            sent = {fields(line).get("offer_id") for line in row.text.splitlines() if line.startswith("offer ")}
+            if sent == ids:
+                return True
+    return False
 
 
 async def ask_number(city: City, citizen: str, english: bool) -> None:
@@ -240,7 +269,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     if now and now.tzinfo is not None and priority in {"U", "B", "D"}:
         start = booking_agenda_start(history, city.agent_id, case_number(history, citizen), now)
         deadline = (start.replace(hour=23, minute=59, second=59, microsecond=0) if priority == "U"
-                    else add_agenda_days(start, {"B": 2, "D": 5}[priority]))
+                    else start + timedelta(days={"B": 2, "D": 5}[priority]))
         criteria += f" deadline={deadline.replace(tzinfo=None).isoformat(timespec='seconds')}"
         # MACH-1.3 R4: the asker sets the window; a slot within the hour cannot be reached.
         criteria += f" after={(now + timedelta(hours=1)).replace(tzinfo=None).isoformat(timespec='seconds')}"

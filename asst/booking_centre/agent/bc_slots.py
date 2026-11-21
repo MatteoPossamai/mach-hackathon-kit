@@ -65,6 +65,10 @@ def booking_agenda_start(history: list, agent: str, number: str, now: datetime) 
     return now
 
 
+LEAD = timedelta(hours=4)
+URGENT_LEAD = timedelta(hours=1)
+
+
 def add_agenda_days(start: datetime, days: int) -> datetime:
     """Advance by simulated days, which skip Saturday and Sunday (ADR-124)."""
 
@@ -83,12 +87,16 @@ def valid_slot(item: dict[str, str], procedure: str, priority: str, now: datetim
         return False
     if item.get("procedure") != procedure or at.tzinfo is None or now.tzinfo is None:
         return False
-    if at <= now + timedelta(hours=1):
+    # Offer -> choice -> hold takes 2-3 real minutes, i.e. 2-3 agenda hours: closer slots came
+    # back "reason=past". U must stay within the same day, so it keeps the short margin.
+    if at <= now + (URGENT_LEAD if priority == "U" else LEAD):
         return False
     start = priority_start or now
     if priority == "U" and at.date() != start.date():
         return False
-    if priority in {"B", "D"} and at > add_agenda_days(start, {"B": 2, "D": 5}[priority]):
+    # Calendar days, like the kit reference and the judge: a Friday B ends on Sunday, so a
+    # Monday slot is "reason=deadline" (14 journeys on Friday 18/12 were lost that way).
+    if priority in {"B", "D"} and at > start + timedelta(days={"B": 2, "D": 5}[priority]):
         return False
     if item.get("free", "1").isdigit() and int(item.get("free", "1")) < 1:
         return False

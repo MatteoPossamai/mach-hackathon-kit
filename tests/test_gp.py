@@ -101,6 +101,19 @@ class GPTest(unittest.TestCase):
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
 
+    def test_late_refused_after_a_sent_prescription_is_ignored(self):
+        """Journeys 313/3450004: a retried prescribe came back 'refused' after the citizen already had
+        the prescription, and the GP wrote 'Il registro non ha confermato la ricetta' (twice)."""
+        c = City(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='success')
+        self.run_gp(c)
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in c.out))
+        late = Message(type='chat', sender=gp.LEDGER, recipient='agent:gp', msg_id='late-refused',
+                       need_id='N-12345', body={'text': 'refused prescribe code=DUPLICATE'})
+        c.rows.append(late)
+        c.inbound = late
+        self.run_gp(c)
+        self.assertFalse(any('non ha confermato' in text for to, text in c.out), c.out)
+
     def test_slow_ledger_still_ends_with_the_prescription(self):
         """Under load the Ledger confirmed after minutes: the citizen stayed on 'Sto aspettando' (journey open)."""
         class LateCity(City):
