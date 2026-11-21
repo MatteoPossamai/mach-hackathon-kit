@@ -279,6 +279,8 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
         assts[partner_asst(item["facility"])] = None
     if lines:
         names = ", ".join(assts)
+        if english:
+            names = names.replace("un'altra ASST", "another ASST")
         where = "a partner facility" if len(assts) == 1 else "partner facilities"
         note = (f"I found appointments at {where} in {names}. Which time works for you?" if english else
                 f"Ho trovato appuntamenti presso le strutture partner di {names}. Quale orario preferisce?")
@@ -501,7 +503,8 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
 
 # --- language fallback: never "no slot" while a valid slot exists ------------------------
 
-RING_WAIT = 20.0
+# Partner teams answer in 30-60 s: a shorter watchdog drops their offers.
+RING_WAIT = 50.0
 FALLEN_BACK: set[str] = set()
 NOTHING_IT = ("Ho cercato nella nostra ASST e nelle strutture partner: entro la scadenza della ricetta "
               "non ci sono posti liberi. Se può, mi indichi altri giorni o orari possibili e riprovo subito; "

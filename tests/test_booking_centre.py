@@ -147,7 +147,7 @@ class BookingTest(unittest.TestCase):
         incoming = msg('citizen:1', 'confirm offer_id=o1 consent_ref=booking-only')
         city = FakeCity(rows + [incoming])
         asyncio.run(booking.handle(city, incoming))
-        self.assertTrue(any(to == 'citizen:1' and text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out))
+        self.assertTrue(any(to == 'citizen:1' and text.startswith('consent purpose=cross_asst') for to, text in city.out))
         self.assertFalse(any(to == PRECOTTO_HOSPITAL for to, _ in city.out))
 
     def test_booking_centre_escalates_chest_pain(self):
@@ -244,7 +244,7 @@ class JourneyTest(unittest.TestCase):
             await city.receive(PRECOTTO_HOSPITAL,
                                f'offer offer_id=partner1 slot_id=s2 doctor_id=asst-precotto-h2 doctor_lang=it {common}\n'
                                f'offer offer_id=partner2 slot_id=s3 doctor_id=asst-precotto-h1 doctor_lang=it/en {common}')
-            self.assertTrue(any(text.startswith('data.request purpose=cross_asst fields=consent_ref') for to, text in city.out if to == 'citizen:1'))
+            self.assertTrue(any(text.startswith('consent purpose=cross_asst') for to, text in city.out if to == 'citizen:1'))
             self.assertFalse(any(text.startswith('confirm ') for _, text in city.out))
             await city.receive('citizen:1', 'consent purpose=cross_asst consent_ref=cross1')
             offer = next(text for to, text in city.out if to == 'citizen:1' and text.startswith('offer '))
@@ -571,7 +571,7 @@ class Level3Test(unittest.TestCase):
             self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
             self.assertFalse(any('data.request' in t for to, t in city.out))
             await city.receive('citizen:1', 'Perfetto, prendo la prima.')
-            self.assertTrue(any(to == 'citizen:1' and t.startswith('data.request purpose=booking fields=consent_ref') for to, t in city.out))
+            self.assertTrue(any(to == 'citizen:1' and t.startswith('consent purpose=booking') for to, t in city.out))
             await city.receive('citizen:1', 'consent purpose=booking consent_ref=c9')
             self.assertTrue(any(to == 'agent:team/h' and t.startswith('confirm ') and 'consent_ref=c9' in t for to, t in city.out))
         asyncio.run(run())
@@ -598,7 +598,7 @@ class RingFixTest(unittest.TestCase):
         city = SearchingCity(rows)
         asyncio.run(booking.find_partners(city, 'case-1', 'citizen:1', 'VIS-FIS', 'B', rows))
         requests = [(to, booking.fields(text)) for to, text in city.out if text.startswith('need.request ')]
-        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL])
+        self.assertEqual([to for to, _ in requests], [PRECOTTO_HOSPITAL, GIAMBELLINO_HOSPITAL, 'agent:xxxxxxxxxxxx'])
         for _, criteria in requests:
             self.assertEqual(criteria['v'], '1.2')
             self.assertEqual(criteria['lang'], 'ro')
@@ -807,7 +807,7 @@ class CrossAsstConsentTest(unittest.TestCase):
             msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
             msg(BICOCCA_HOSPITAL, f'offer offer_id=p1 slot_id=s1 doctor_id=asst-bicocca-h1 facility={BICOCCA_HOSPITAL} '
                 'procedure=VIS-FIS agenda_date=2026-11-20T12:00:00+00:00 doctor_lang=it/en request_id=q', me, mid='o'),
-            msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
+            msg(me, 'consent purpose=cross_asst May I share?', 'citizen:1', mid='dr'),
             msg('citizen:1', 'data.response consent_ref=cx-99', me, mid='resp'),
         ]
         city = FakeCity(rows)
@@ -822,7 +822,7 @@ class CrossAsstConsentTest(unittest.TestCase):
             rows = [
                 msg('citizen:1', 'need.request lang=en prescription_number=rx1', me, mid='a'),
                 msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
-                msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
+                msg(me, 'consent purpose=cross_asst May I share?', 'citizen:1', mid='dr'),
                 msg('citizen:1', reply_text, me, mid='resp'),
             ]
             city = FakeCity(rows)

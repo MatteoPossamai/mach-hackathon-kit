@@ -77,7 +77,7 @@ async def book_choice(city: City, message, history: list, citizen: str, selected
     if not consent or (remote and not cross):
         purpose = "cross_asst" if remote else "booking"
         english = writes_english(history, citizen)
-        await send(city, citizen, f"data.request purpose={purpose} fields=consent_ref " + (
+        await send(city, citizen, f"consent purpose={purpose} " + (
             "May I proceed with the booking you chose?" if english
             else "Posso procedere con la prenotazione scelta?"))
         return
@@ -246,7 +246,7 @@ async def handle(city: City, message) -> None:
         elif requested and not asked_consent(history, city.agent_id, citizen, "cross_asst"):
             prefs = await citizen_preferences(city, history, citizen)
             if matching_partner_offers(history, city.agent_id, citizen, prefs):
-                await send(city, citizen, "data.request purpose=cross_asst fields=consent_ref " + (
+                await send(city, citizen, "consent purpose=cross_asst " + (
                     "I found a possible slot at a partner facility of another ASST. May I share the data needed to check it and book it?"
                     if writes_english(history, citizen) else
                     "Ho trovato una possibile disponibilità in una struttura partner di un'altra ASST. Posso condividere i dati necessari per verificarla e prenotare?"))

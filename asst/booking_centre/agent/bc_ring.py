@@ -29,8 +29,16 @@ _PRIVATE_FIELDS = {"citizen", "patient", "prescription_number", "name", "age", "
                    "cross_asst_consent_ref"}
 
 
+# Our own agents never join the ring as partners.
+_OWN = frozenset({"agent:gdrf9b9kxxss", "agent:nanpr5mgm2py", "agent:c2ewegr2ea3v",
+                  "agent:pky3vqyqbepa", "agent:atp772whjkgd"})
+# Other ASSTs' facilities the Index returns beyond the declared list. A partner
+# never sees citizen data before consent, and its offer is booked by its own Ledger.
+MAX_PARTNERS = 12
+
+
 def partner_asst(agent_id: str) -> str:
-    return _FACILITIES[agent_id][0]
+    return _FACILITIES[agent_id][0] if agent_id in _FACILITIES else "un'altra ASST"
 
 
 def partner_supplies(agent_id: str, procedure: str) -> bool:
@@ -40,27 +48,39 @@ def partner_supplies(agent_id: str, procedure: str) -> bool:
 
 
 def ring_peers(peers: list, procedure: str, language: str, *, capability_lookup: bool) -> list[str]:
+    """Declared partners first (rare language match on top), then other ASSTs the Index returns."""
+
     capability = CAPABILITY.get(procedure)
+    family = capability.split(".", 1)[0] if capability else ""
     eligible = {}
     for peer in peers:
-        if not partner_supplies(peer.agent_id, procedure):
+        agent_id = getattr(peer, "agent_id", "")
+        if not agent_id or agent_id in _OWN:
             continue
-        _, role, rare = _FACILITIES[peer.agent_id]
         capabilities = getattr(peer, "capabilities", ())
-        if peer.role not in ("facility", role):
-            continue
         if capability not in (capabilities or ()) and (capabilities or not capability_lookup):
             continue
-        eligible[peer.agent_id] = bool(rare and rare == language)
-    return sorted(eligible, key=lambda agent_id: not eligible[agent_id])
+        if agent_id in _FACILITIES:
+            if not partner_supplies(agent_id, procedure):
+                continue
+            _, role, rare = _FACILITIES[agent_id]
+            if peer.role not in ("facility", role):
+                continue
+            eligible[agent_id] = 0 if (rare and rare == language) else 1
+        elif family and peer.role == family:
+            eligible[agent_id] = 2
+    return sorted(eligible, key=lambda agent_id: eligible[agent_id])[:MAX_PARTNERS]
 
 
 def ring_requests(history: list, agent: str) -> dict[str, dict[str, str]]:
+    """The ring requests we sent in this case, by partner (read from history, not memory)."""
+
     requests = {}
     for row in history:
-        if row.sender == agent and row.recipient in _FACILITIES and act(row.text) == "need.request":
+        if (row.sender == agent and row.recipient.startswith("agent:") and row.recipient not in _OWN
+                and act(row.text) == "need.request"):
             request = fields(row.text)
-            if partner_supplies(row.recipient, request.get("procedure", "")):
+            if request.get("procedure"):
                 requests[row.recipient] = request
     return requests
 
