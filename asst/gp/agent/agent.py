@@ -564,7 +564,29 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         if confirmed:
             await _announce(city, confirmed, chat, agent, repeat=True)
         else:
-            await _say(city, message.sender, "I am checking the prescription with the registry; I will answer as soon as it is confirmed." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
+            # The write may have been lost: read it back (safe), and if still unknown send the
+            # same prescribe again (same number), then wait briefly. Never stuck forever.
+            number = ours["prescription_number"]
+            deadline = asyncio.get_running_loop().time() + 8.0
+            seen = {row.msg_id for row in chat}
+            await _say(city, LEDGER, f"prescription prescription_number={number}")
+            reply, fresh = await _bounded_wait(city, message.need_id, chat, ours, (0.5, 1.0, 2.0),
+                                               seen=seen, deadline=deadline)
+            if reply is None and ours.get("procedure") and ours.get("priority"):
+                code = next((fields_of(row.text).get("symptom_code", "") for row in chat
+                             if row.sender == agent and row.recipient == LEDGER
+                             and first_word(row.text) == "prescribe"
+                             and f"prescription_number={number}" in row.text.split()), "")
+                await _say(city, LEDGER,
+                           f"prescribe patient={message.sender} procedure={ours['procedure']} "
+                           f"priority={ours['priority']}" + (f" symptom_code={code}" if code else "")
+                           + f" prescription_number={number}")
+                reply, fresh = await _bounded_wait(city, message.need_id, fresh, ours, (0.5, 1.0, 2.0),
+                                                   seen=seen, deadline=deadline + 6.0)
+            if reply is not None and first_word(reply.text) != "refused":
+                await _announce(city, reply, fresh, agent, repeat=True)
+            else:
+                await _say(city, message.sender, "I am checking the prescription with the registry; I will answer as soon as it is confirmed." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
         return
     old_number = understood(message).body.get("prescription_number")
     if isinstance(old_number, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", old_number):
@@ -1572,17 +1594,33 @@ async def _say(city: City, to: str, text: str) -> bool:
     return False
 
 
+_RX_BUDGET = 20.0  # real seconds a turn may spend waiting for the Ledger; the push does the rest
+
+
+async def _bounded_wait(city, need_id, history, request, pauses, *, seen, deadline):
+    """wait_for_result under a hard real-time budget: a slow history() must not hold the pod."""
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        return None, history
+    try:
+        return await asyncio.wait_for(
+            wait_for_result(city, need_id, history, request, pauses, seen=seen), remaining)
+    except asyncio.TimeoutError:
+        return None, history
+
+
 async def _finish_prescription(
     city: City, message: Message, chat: list[Message], request: dict[str, str],
 ) -> None:
     """Recover an issued prescription even if the Ledger's write reply was delayed."""
+    deadline = asyncio.get_running_loop().time() + _RX_BUDGET
     seen = {row.msg_id for row in chat}
     need_id = message.need_id
     lookup = f"prescription prescription_number={request['prescription_number']}"
-    reply, fresh = await wait_for_result(city, need_id, chat, request, (0, _PULL_PAUSE, 2 * _PULL_PAUSE), seen=seen)
+    reply, fresh = await _bounded_wait(city, need_id, chat, request, (0, _PULL_PAUSE, 2 * _PULL_PAUSE), seen=seen, deadline=deadline)
     if reply is None and not _escalated(fresh, city.agent_id):
         await _say(city, LEDGER, lookup)
-        reply, fresh = await wait_for_result(city, need_id, fresh, request, (0, 2 * _PULL_PAUSE, 4 * _PULL_PAUSE), seen=seen)
+        reply, fresh = await _bounded_wait(city, need_id, fresh, request, (0, 2 * _PULL_PAUSE, 4 * _PULL_PAUSE), seen=seen, deadline=deadline)
     if reply is None and not _escalated(fresh, city.agent_id):
         english = _english(message.text)
         await _say(city, message.sender,
@@ -1590,12 +1628,12 @@ async def _finish_prescription(
                    if english else
                    "Sto aspettando la conferma del registro. Le invierò il numero appena la ricetta sarà registrata.")
         backoff = tuple(ticks * _PULL_PAUSE for ticks in (4, 8, 12))
-        reply, fresh = await wait_for_result(city, need_id, fresh, request, backoff, seen=seen)
+        reply, fresh = await _bounded_wait(city, need_id, fresh, request, backoff, seen=seen, deadline=deadline)
     if reply is None and not _escalated(fresh, city.agent_id):
         # A lookup can reach the Ledger before the preceding write has been processed.
         await _say(city, LEDGER, lookup)
         backoff = tuple(ticks * _PULL_PAUSE for ticks in (16, 20, 24))
-        reply, fresh = await wait_for_result(city, need_id, fresh, request, backoff, seen=seen)
+        reply, fresh = await _bounded_wait(city, need_id, fresh, request, backoff, seen=seen, deadline=deadline)
     if reply is not None:
         await _announce(city, reply, fresh, city.agent_id)
 
