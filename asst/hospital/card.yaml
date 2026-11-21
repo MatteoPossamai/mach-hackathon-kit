@@ -1,7 +1,7 @@
 agent_id: agent:nanpr5mgm2py
 team: team:ltf-jecatt
 name: hospital
-version: 1.0.6
+version: 1.0.7
 cap_versions:
   - "1.0"
 profiles:
