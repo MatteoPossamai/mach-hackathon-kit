@@ -157,7 +157,9 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
     priority_start = booking_agenda_start(history, city.agent_id, number, now)
     candidates, relaxed = choose_slots(items, procedure, priority, now, prefs, priority_start=priority_start)
-    candidates = rotate_for_case(spread(candidates, need_id), need_id)
+    # A slot another case is confirming is still better than a waiting list: the Ledger
+    # settles the race, and a lost race comes back as slot_taken with a new offer.
+    candidates = rotate_for_case(spread(candidates, need_id) or candidates, need_id)
     if not candidates:
         if relax_lang:
             await send(city, citizen, nothing_offer(need_id, english))
@@ -577,8 +579,13 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
     FALLEN_BACK.add(need_id)
     lang = prefs.get("lang", "")
     number = case_number(history, citizen)
-    if not lang or lang == "it" or not number or not TOKEN.fullmatch(number):
+    if not number or not TOKEN.fullmatch(number):
         await send(city, citizen, nothing_offer(need_id, english))
+        return
+    if not lang or lang == "it":
+        # Ring silent and no language need: read the local world once more (slots free up
+        # every minute of agenda) before the waiting list.
+        await search(city, need_id, history, citizen, number, relax_lang=True)
         return
     # The structured lang token can disagree with the language the citizen names in words
     # ("a doctor who speaks English" with lang=hi): try the named one before any doctor.
