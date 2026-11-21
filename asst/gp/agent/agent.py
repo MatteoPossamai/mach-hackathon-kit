@@ -1548,3 +1548,82 @@ def _english(text: str) -> bool:
     tokens = {word.strip(".,;:!?()\"'").lower() for word in (text or "").split()}
     en, it = len(tokens & _EN_WORDS), len(tokens & _IT_WORDS)
     return en >= 1 and en > it
+
+
+# --- level 7: faults and contention --------------------------------------------------------
+# A Ledger 5xx or timeout is transient: retry the write ourselves (a 4xx is final, never
+# retried). The Ledger push may be lost while partners are down, so wait longer for it.
+
+_FAULT_RETRIES = 2
+_FAULT_PAUSE = 1.5
+_say_fault_free = _say
+
+
+async def _say(city: City, to: str, text: str) -> bool:
+    if to != LEDGER or not text.startswith("prescribe "):
+        return await _say_fault_free(city, to, text)
+    for attempt in range(_FAULT_RETRIES + 1):
+        try:
+            await city.say(to, text)
+            return True
+        except CapError as exc:
+            try:
+                transient = exc.http_status() >= 500
+            except CapError:
+                transient = False
+            if not transient or attempt == _FAULT_RETRIES:
+                return False
+        await asyncio.sleep(_FAULT_PAUSE * (attempt + 1))
+    return False
+
+
+_finish_prescription_first = _finish_prescription
+
+
+async def _finish_prescription(city: City, message: Message, chat: list[Message], number: str) -> None:
+    """First wait as before; if the Ledger is slow, tell the citizen and keep reading the case."""
+
+    result = await _await_line(city, message.need_id, chat, "prescribed",
+                               f"prescription_number={number}", op="prescribe")
+    if result is None:
+        english = _english(next((r.text for r in reversed(chat) if r.sender == message.sender), ""))
+        await _say(city, message.sender,
+                   "The registry is slow right now: I am waiting for it to record your referral and I "
+                   "will send you the number as soon as it is confirmed." if english else
+                   "Il registro in questo momento è lento: sto aspettando che registri la ricetta e le "
+                   "mando il numero appena è confermata.")
+        for _ in range(3):
+            result = await _await_line(city, message.need_id, chat, "prescribed",
+                                       f"prescription_number={number}", op="prescribe")
+            if result is not None:
+                break
+        if result is None:
+            return
+    reply, fresh = result
+    if first_word(reply.text) == "refused":
+        english = _english(next((r.text for r in reversed(chat) if r.sender == message.sender), ""))
+        await _say(city, message.sender,
+                   "The registry did not record the referral. Write to me again and I will issue it "
+                   "once more; in an emergency call 112." if english else
+                   "Il registro non ha registrato la ricetta. Mi riscriva e la emetto di nuovo; in caso "
+                   "di urgenza chiami il 112.")
+        return
+    await _announce(city, reply, fresh, city.agent_id)
+
+
+_rx_note_care = _rx_note
+
+
+def _rx_note(
+    procedure: str, priority: str, *, english: bool, text: str = "", reminder: bool = False
+) -> str:
+    """Add the network: partner ASSTs with consent, and a new slot if a facility drops out."""
+
+    note = _rx_note_care(procedure, priority, english=english, text=text, reminder=reminder)
+    if english:
+        return (note + " If our ASST has no suitable time, the booking centre also asks partner "
+                "facilities in other ASSTs, always with your permission first; if a facility drops "
+                "out, it finds you a new time within the same deadline.")
+    return (note + " Se nella nostra ASST non c'è un orario adatto, il centro prenotazioni chiede "
+            "anche alle strutture partner di altre ASST, sempre con il suo permesso prima; se una "
+            "struttura salta, le trova un nuovo orario entro la stessa scadenza.")
