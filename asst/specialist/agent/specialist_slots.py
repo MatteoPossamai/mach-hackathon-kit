@@ -8,7 +8,22 @@ def configure(agent_globals: dict[str, object]) -> None:
     globals().update(agent_globals)
 
 
+# MACH-1.2 RULE SYNC: Ledger codes become the shared cancel reasons every team understands.
+_RULE_SYNC = {
+    "PRESCRIPTION_EXPIRED": "prescription_expired",
+    "CONSENT_MISSING": "consent_missing",
+    "NO_CAPACITY": "no_capacity",
+    "SLOT_TAKEN": "slot_taken",
+    "HOLD_EXPIRED": "hold_expired",
+}
+
+
 def _extract_refusal_reason(text: str) -> str:
+    raw = _extract_refusal_reason_raw(text)
+    return _RULE_SYNC.get(raw.upper(), raw) if raw.upper() in _RULE_SYNC else raw
+
+
+def _extract_refusal_reason_raw(text: str) -> str:
     fields = fields_of(text)
     for key in ("reason", "code", "error"):
         val = _safe_token(fields.get(key))
@@ -223,6 +238,9 @@ def _offer_line(
     ]
     if day_val:
         parts.append(f"agenda_day={day_val}")
+    if str(slot.get("urgent_reserve", "")).lower() == "true":
+        # MACH-1.2: a reserve slot is marked so no centre offers it to B, D or P.
+        parts.append("reserve=U")
     if include_doctor_attrs:
         spec = _DOCTORS.get(slot["doctor_id"].rsplit("-", 1)[-1])
         if spec is not None:

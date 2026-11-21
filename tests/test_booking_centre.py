@@ -645,6 +645,44 @@ class RingFixTest(unittest.TestCase):
 
 
 class CitizenCancelTest(unittest.TestCase):
+    def test_past_cancel_does_not_restart_search_when_another_slot_is_confirmed(self):
+        me = city_id()
+        citizen = 'citizen:1'
+        stamp = '2026-11-21T02:39:00.000Z'
+        cancel = Message(type='chat', sender=citizen, recipient=me, msg_id='cancel', need_id='case-1',
+                         sent_at=stamp, body={'text': 'cancel offer_id=o1 reason=past'})
+        confirm = Message(type='chat', sender=citizen, recipient=me, msg_id='confirm', need_id='case-1',
+                          sent_at=stamp, body={'text': 'confirm offer_id=o2 consent_ref=ok'})
+        rows = [msg(citizen, 'need.request prescription_number=rx1', me),
+                msg(me, 'offer offer_id=o1 slot_id=s1 facility=agent:t/h\n'
+                        'offer offer_id=o2 slot_id=s2 facility=agent:t/h prescription_number=rx1', citizen),
+                cancel, confirm]
+        city = FakeCity(rows)
+        city.inbound = cancel
+        asyncio.run(booking.main(SimpleNamespace(is_emergency=False), city))
+        self.assertEqual(city.out, [])
+        asyncio.run(booking.handle(city, confirm))
+        self.assertIn(('agent:t/h', 'confirm offer_id=o2 slot_id=s2 prescription_number=rx1 '
+                       'citizen=citizen:1 consent_ref=ok'), city.out)
+
+    def test_free_text_can_choose_an_offer_via_the_model(self):
+        class ModelCity(FakeCity):
+            async def llm(self, messages, need_id=None):
+                return {'content': '{"intent":"choose","option":2}'}
+
+        me = city_id()
+        citizen = 'citizen:1'
+        incoming = msg(citizen, 'I can make it after lunch, go ahead with that one.', me, mid='choice')
+        city = ModelCity([msg(citizen, 'need.request prescription_number=rx1', me, mid='request'),
+                          msg(me, 'offer offer_id=o1 slot_id=s1 facility=agent:t/h\n'
+                                  'offer offer_id=o2 slot_id=s2 facility=agent:t/h', citizen, mid='offers'),
+                          incoming])
+        city.inbound = incoming
+        asyncio.run(booking.handle(city, incoming))
+        self.assertTrue(any(to == citizen and text.startswith('consent purpose=booking offer_id=o2 ')
+                            for to, text in city.out))
+        self.assertFalse(any(to == 'agent:t/h' for to, _ in city.out))
+
     def test_a_refusal_is_never_read_as_a_choice(self):
         me = 'agent:team/booking'
         rows = [msg(me, 'offer offer_id=o2 slot_id=S2 at=2026-11-17T10:30:00+00:00', 'citizen:1', mid='s'),
@@ -821,12 +859,12 @@ class CrossAsstConsentTest(unittest.TestCase):
 
     def test_missing_consent_ref_or_refusal_triggers_local_fallback_never_hangs(self):
         me = 'agent:team/booking'
-        for reply_text in ('Which consent_ref?', 'No, non voglio condividere i miei dati.', 'consent granted=false'):
+        for reply_text in ('data.response', 'No, non voglio condividere i miei dati.', 'consent granted=false'):
             booking.bc_flow.FALLEN_BACK.clear()
             rows = [
                 msg('citizen:1', 'need.request lang=en prescription_number=rx1', me, mid='a'),
                 msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', BICOCCA_HOSPITAL, mid='q'),
-                msg(me, 'consent purpose=cross_asst May I share?', 'citizen:1', mid='dr'),
+                msg(me, 'data.request purpose=cross_asst fields=consent_ref May I share?', 'citizen:1', mid='dr'),
                 msg('citizen:1', reply_text, me, mid='resp'),
             ]
             city = FakeCity(rows)
@@ -842,6 +880,26 @@ class CrossAsstConsentTest(unittest.TestCase):
                 booking.language_fallback = orig
             self.assertEqual(called, [1], f'Failed to fall back for reply: {reply_text}')
             self.assertFalse(any(to == BICOCCA_HOSPITAL for to, _ in city.out))
+
+    def test_consent_question_retries_without_sharing(self):
+        me = city_id()
+        incoming = msg('citizen:1', 'Which consent_ref?', me, mid='question')
+        rows = [msg('citizen:1', 'need.request prescription_number=rx1', me),
+                msg(me, 'consent purpose=cross_asst May I share?', 'citizen:1'), incoming]
+        city = FakeCity(rows)
+        asyncio.run(booking.handle(city, incoming))
+        self.assertEqual([to for to, _ in city.out], ['citizen:1'])
+        self.assertTrue(city.out[0][1].startswith('data.request purpose=cross_asst fields=consent_ref '))
+        self.assertEqual(booking.cross_consent(rows, me, 'citizen:1'), '')
+
+    def test_nested_consent_reference_is_scoped_to_the_pending_request(self):
+        me = city_id()
+        reply = Message(type='data.response', sender='citizen:1', recipient=me, msg_id='reply',
+                        body={'provided': {'consent_ref': 'actual-ref'}})
+        cross = msg(me, 'data.request purpose=cross_asst fields=consent_ref', 'citizen:1')
+        local = msg(me, 'consent purpose=booking', 'citizen:1')
+        self.assertEqual(booking.cross_consent([cross, reply], me, 'citizen:1'), 'actual-ref')
+        self.assertEqual(booking.cross_consent([cross, local, reply], me, 'citizen:1'), '')
 
 
 class ReadWorldTest(unittest.TestCase):
@@ -910,6 +968,47 @@ class VagueDaysTest(unittest.TestCase):
             self.assertTrue(any(to == 'citizen:1' and t.startswith('offer ') for to, t in city.out))
             self.assertEqual(sum(1 for to, t in city.out if to == 'citizen:1' and t.startswith('data.request purpose=booking fields=days')), 1)
         asyncio.run(run())
+
+
+class LanguageClarificationTest(unittest.TestCase):
+    def test_language_conflict_pauses_search_until_citizen_answers(self):
+        class LanguageCity(JourneyCity):
+            async def llm(self, messages, need_id=None):
+                if 'English, please.' in messages[-1]['content']:
+                    return {'content': '{"lang": "en", "requested_lang": "en", "confirmed_lang": "en"}'}
+                return {'content': '{"lang": "en", "requested_lang": "en"}'}
+
+        async def run(typed):
+            city = LanguageCity()
+            citizen = 'citizen:1'
+            await city.receive(citizen, 'I would like a doctor who speaks English. '
+                               'need.request prescription_number=rx1 lang=am')
+            question = [text for to, text in city.out if to == citizen and 'fields=lang' in text]
+            self.assertEqual(len(question), 1)
+            self.assertIn('English or Amharic', question[0])
+            self.assertFalse(any(text.startswith('world ') for _, text in city.out))
+            if typed:
+                city.inbound = Message(type='data.response', sender=citizen, recipient=city.agent_id,
+                                       msg_id='language-reply', need_id='case-1', body={'provided': {'lang': 'en'}})
+                city.rows.append(city.inbound)
+                await booking.main(SimpleNamespace(), city)
+            else:
+                await city.receive(citizen, 'English, please.')
+            self.assertTrue(any(to == citizen and text.startswith('offer ') for to, text in city.out))
+            self.assertEqual(sum('fields=lang' in text for _, text in city.out), 1)
+
+        for typed in (False, True):
+            with self.subTest(typed=typed):
+                asyncio.run(run(typed))
+
+    def test_conversation_language_does_not_conflict_with_visit_language(self):
+        class EnglishTextCity(FakeCity):
+            async def llm(self, messages, need_id=None):
+                return {'content': '{"lang": "en"}'}
+
+        rows = [msg('citizen:2', 'Can you find an appointment? need.request lang=am')]
+        result = asyncio.run(booking.citizen_preferences(EnglishTextCity(rows), rows, 'citizen:2'))
+        self.assertEqual(result, {'lang': 'am'})
 
 
 class DedupTest(unittest.TestCase):

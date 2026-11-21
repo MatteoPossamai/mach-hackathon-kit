@@ -1,6 +1,8 @@
 """Message parsing, citizen-safe replies, and Ledger-history helpers."""
 from __future__ import annotations
 
+import re
+
 
 def configure(agent_globals: dict[str, object]) -> None:
     globals().update(agent_globals)
@@ -67,7 +69,15 @@ def _is_emergency(need: Need, message: Message) -> bool:
     if need.is_emergency or understood(message).body.get("is_emergency") is True:
         return True
     lowered = (message.text or need.summary).lower()
-    return any(flag in lowered for flag in _RED_FLAGS)
+    for flag in _RED_FLAGS:
+        start = lowered.find(flag)
+        while start >= 0:
+            prefix = lowered[max(0, start - 28):start]
+            # "non ho dolore al petto", "no chest pain": a negated flag is not an emergency.
+            if not re.search(r"\b(?:non\s+(?:ho|sento|avverto|c'è|ce)|senza|nessun[ao]?|no|not|without|never)\b[^.!?]*$", prefix):
+                return True
+            start = lowered.find(flag, start + 1)
+    return False
 
 
 def _is_english(chat: list[Message], text: str = "") -> bool:
