@@ -82,25 +82,23 @@ class GPTest(unittest.TestCase):
                         self.rows.append(msg(gp.LEDGER, f'prescription prescription_number={number} '
                                              'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
 
-        # One lookup only: a queued Ledger answers it (a slow one is test_slow_ledger_*).
-        for available_after in (1,):
-            with self.subTest(available_after=available_after):
-                city = ReadbackCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
-                city.available_after = available_after
-                self.run_gp(city)
-                self.assertEqual(city.lookups, available_after)
-                self.assertEqual(sum(to == gp.LEDGER and text.startswith('prescribe ')
-                                     for to, text in city.out), 1)
-                if available_after == 1:
-                    actions = [(to, text.split()[0]) for to, text in city.out]
-                    self.assertEqual(actions[:3], [(gp.LEDGER, 'prescribe'), (gp.LEDGER, 'prescription'),
-                                                   ('citizen:1', 'prescription')])
-                self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ')
-                                    for to, text in city.out))
-                city.inbound = next(row for row in city.rows if row.sender == gp.LEDGER)
-                self.run_gp(city)
-                self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
-                                     for to, text in city.out), 1)
+        # 15:30: no lookup at all. Our ASST's Ledger answered in order, 30+ min late; a lookup
+        # only queued behind the prescribe. The confirmation arrives as a Ledger push.
+        city = ReadbackCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
+        city.available_after = 1
+        self.run_gp(city)
+        self.assertEqual(city.lookups, 0)
+        self.assertEqual(sum(to == gp.LEDGER and text.startswith('prescribe ') for to, text in city.out), 1)
+        self.assertFalse(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in city.out))
+        number = next(gp.fields_of(text)['prescription_number'] for to, text in city.out
+                      if to == gp.LEDGER and text.startswith('prescribe '))
+        push = msg(gp.LEDGER, f'prescription prescription_number={number} '
+                   'patient=citizen:1 procedure=VIS-FIS priority=B state=issued')
+        city.rows.append(push)
+        city.inbound = push
+        self.run_gp(city)
+        self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
+                             for to, text in city.out), 1)
 
     def test_note_goes_out_even_when_the_first_history_read_hangs(self):
         """After 13:25 citizens stayed at msgs=1 for 4-15 min: the note waited for a history

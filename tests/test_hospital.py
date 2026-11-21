@@ -112,6 +112,20 @@ class HospitalTest(unittest.TestCase):
         incoming = confirm(); city = Slow([incoming, slots()])
         self.run_confirm(city, incoming)
         self.assertTrue(any(to == 'agent:team/booking' and 'booking.receipt booking_id=B1' in text for to, text in city.out), city.out)
+    def test_slow_ledger_declines_ring_requests_without_queueing_reads(self):
+        """15:30: our ASST's Ledger answered 30+ min late; each ring request added two reads."""
+        hospital.hosp_ack._LEDGER_SLOW_UNTIL[0] = 0.0
+        try:
+            hospital.hosp_ack.mark_ledger_slow()
+            incoming = msg('agent:other/bc', 'need.request procedure=VIS-FIS priority=B request_id=Q7', mid='slow1')
+            city = City([incoming])
+            asyncio.run(hospital._partner_request(city, incoming, list(city.rows)))
+            self.assertFalse([t for to, t in city.out if to == hospital.LEDGER], city.out)
+            self.assertTrue(any(to == 'agent:other/bc' and t.startswith('cancel reason=no_availability')
+                                and 'request_id=Q7' in t for to, t in city.out), city.out)
+        finally:
+            hospital.hosp_ack._LEDGER_SLOW_UNTIL[0] = 0.0
+
     def test_partner_request_is_acknowledged_before_the_history_read(self):
         """city:clock +1 for a reply to another agent within 10 s: the ack waited for a history
         read that took longer than that on a loaded relay (2689 ratings, 0.07 points each)."""
