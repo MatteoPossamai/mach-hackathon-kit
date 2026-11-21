@@ -30,6 +30,7 @@ from bc_choice import *  # noqa: F401,F403
 import bc_choice  # noqa: F401
 
 LOCKS: dict[str, asyncio.Lock] = {}
+NOTICE_ACTS = frozenset({"handoff", "booking.notice", "ack"})
 
 
 async def main(need: Need, city: City) -> None:
@@ -43,6 +44,10 @@ async def main(need: Need, city: City) -> None:
         return
     if incoming.sender.startswith("citizen:") and clinical(incoming.text):
         raise OutOfScope()
+    if incoming.sender.startswith("agent:") and act(incoming.text) in NOTICE_ACTS:
+        # A GP hand-off or a facility notice is not a citizen request: never write to the
+        # citizen because of it (it used to send "no availability" before they even wrote).
+        return
     key = incoming.need_id
     lock = LOCKS.setdefault(key, asyncio.Lock())
     async with lock:

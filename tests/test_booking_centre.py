@@ -555,3 +555,13 @@ class CitizenCancelTest(unittest.TestCase):
         finally:
             booking.book_choice = orig
         self.assertEqual(booked, [])
+
+
+class NoticeTest(unittest.TestCase):
+    def test_gp_handoff_never_reaches_the_citizen(self):
+        rows = [msg('citizen:1', 'Ho mal di schiena', 'agent:c2ewegr2ea3v', mid='a'),
+                msg('agent:c2ewegr2ea3v', 'handoff prescription_number=prescription_number-N-1 procedure=VIS-FIS priority=B Ricetta emessa.', mid='h')]
+        city = FakeCity(rows)
+        city.inbound = rows[-1]
+        asyncio.run(booking.main(SimpleNamespace(is_emergency=False), city))
+        self.assertEqual(city.out, [])

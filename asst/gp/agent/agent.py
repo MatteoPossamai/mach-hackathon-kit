@@ -744,7 +744,6 @@ async def _announce(city: City, message: Message, chat: list[Message], agent: st
     citizen_text = next((row.text for row in reversed(chat) if row.sender == citizen), "")
     parts.append(_rx_note(procedure or "", priority or "", english=_english(citizen_text), text=citizen_text))
     await _say(city, citizen, " ".join(parts))
-    await _handoff(city, chat, number, procedure or "", priority or "")
 
 # --- centro prenotazioni and consultorio -------------------------------------------------------
 
@@ -1493,11 +1492,7 @@ def _rx_note(
     care = (_CARE_EN if english else _CARE_IT).get(procedure, "")
     if care and note.startswith("- "):
         note = "- " + care + " " + note[2:]
-    if reminder:
-        return note
-    if english:
-        return note + " I have already passed your prescription to our booking centre, so they are ready when you write."
-    return note + " Ho già passato la ricetta al nostro centro prenotazioni, così è pronto quando lo contatta."
+    return note
 
 
 async def _handoff(city: City, chat: list[Message], number: str, procedure: str, priority: str) -> None:
@@ -1532,3 +1527,24 @@ async def _say(city: City, to: str, text: str) -> bool:
         if rest:
             text = head + sep + " ".join(_PROSE_SWAP.get(word, word) for word in rest.split(" "))
     return await _say_raw(city, to, text)
+
+
+# --- language: short or broken English must still get an English answer ------------------
+
+_EN_WORDS = frozenset({
+    "i", "i'm", "im", "my", "me", "the", "a", "an", "is", "am", "are", "have", "has", "got", "pain",
+    "need", "want", "hello", "hi", "hey", "please", "doctor", "doc", "when", "walk", "walking", "knee",
+    "back", "heart", "hurts", "hurt", "beats", "beating", "fast", "visit", "can", "you", "it", "and",
+    "to", "with", "for", "since", "feel", "speak", "speaks", "english", "thanks", "thank", "yo", "kinda",
+})
+_IT_WORDS = frozenset({
+    "ho", "il", "la", "lo", "mi", "di", "che", "per", "non", "sono", "un", "una", "dolore", "male",
+    "vorrei", "ginocchio", "cuore", "schiena", "grazie", "buongiorno", "buonasera", "dottore", "medico",
+    "visita", "da", "con", "quando", "cammino", "batte", "forte", "salve", "ciao", "raga", "petto",
+})
+
+
+def _english(text: str) -> bool:
+    tokens = {word.strip(".,;:!?()\"'").lower() for word in (text or "").split()}
+    en, it = len(tokens & _EN_WORDS), len(tokens & _IT_WORDS)
+    return en >= 1 and en > it

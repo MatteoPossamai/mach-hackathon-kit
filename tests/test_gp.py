@@ -156,28 +156,19 @@ class GpCollaborationTest(unittest.TestCase):
         self.assertEqual(city.out, [])
 
 
-class GpHandoffTest(unittest.TestCase):
-    def test_note_acknowledges_the_person_first(self):
+class GpLanguageTest(unittest.TestCase):
+    def test_broken_english_is_english(self):
+        for text in ("Knee hurts when walk. Need visit.", "my heart beats fast",
+                     "yo, lowkey got back pain and need a medico di base who speaks english, fr."):
+            self.assertTrue(gp._english(text), text)
+        for text in ("Buongiorno, mi fa male il ginocchio quando cammino", "Dottore, il mio cuore che batte veloce.",
+                     "ciao raga, dovrei prenotare una visita"):
+            self.assertFalse(gp._english(text), text)
+
+    def test_note_acknowledges_the_person_and_no_handoff_claim(self):
         note = gp._rx_note('VIS-FIS', 'D', english=False)
         self.assertTrue(note.startswith('- Mi dispiace per il dolore'))
-        self.assertIn('centro prenotazioni', note)
-        self.assertTrue(gp._rx_note('VIS-CARD', 'B', english=True).startswith("- I'm sorry"))
-
-    def test_handoff_goes_once_to_our_booking_centre(self):
-        class C:
-            agent_id = 'agent:c2ewegr2ea3v'
-            def __init__(self): self.rows, self.out = [], []
-            async def say(self, to, text):
-                self.out.append((to, text))
-                self.rows.append(Message(type='chat', sender=self.agent_id, recipient=to, msg_id=f'o{len(self.rows)}', need_id='N-1', body={'text': text}))
-        city = C()
-        asyncio.run(gp._handoff(city, city.rows, 'prescription_number-N-1', 'VIS-FIS', 'D'))
-        asyncio.run(gp._handoff(city, city.rows, 'prescription_number-N-1', 'VIS-FIS', 'D'))
-        self.assertEqual(len(city.out), 1)
-        to, text = city.out[0]
-        self.assertEqual(to, 'agent:gdrf9b9kxxss')
-        self.assertTrue(text.startswith('handoff prescription_number=prescription_number-N-1 procedure=VIS-FIS priority=D'))
-        self.assertNotIn('citizen:', text)
+        self.assertNotIn('Ho già passato', note)
 
 
 class ActWordTest(unittest.TestCase):
