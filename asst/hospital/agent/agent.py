@@ -1298,6 +1298,10 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
             await _say(city, peer, "cancel reason=no_availability" + (f" request_id={request_id}" if request_id else "")
                        + " Qui solo visite fisiatriche (VIS-FIS).")
             return
+    if hosp_ack.ledger_slow() and (not _has_agenda(chat) or _latest_slots(chat) is None):
+        # A slow Ledger answers after the request is long dead: say so now, add nothing to its queue.
+        await _say(city, peer, f"cancel reason=no_availability procedure={procedure}{' request_id=' + request_id if request_id else ''} Registro temporaneamente non disponibile.")
+        return
     if (not _has_agenda(chat) or _latest_slots(chat) is None) and message.msg_id not in hosp_ack.AGENT_ACKED:
         # MACH-1: first answer within 10 s, in plain words, before the Ledger lookups.
         await _say(city, peer, "Ricevuto, verifico la disponibilità. / Received, checking availability.")
@@ -1313,6 +1317,7 @@ async def _partner_request(city: City, message: Message, chat: list[Message]) ->
     now = _when("" if agenda is None else agenda.get("agenda_now", ""))
     world = _latest_slots(chat)
     if now is None or world is None:
+        hosp_ack.mark_ledger_slow()
         await _say(city, peer, f"cancel reason=no_availability procedure={procedure}{' request_id=' + request_id if request_id else ''} Registro temporaneamente non disponibile.")
         return
     page, pages = _page(world)
