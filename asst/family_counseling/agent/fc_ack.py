@@ -129,6 +129,8 @@ async def with_early_note(city, message, work, say, text: str, delay: float | No
         if len(ACKED) > 20000:
             ACKED.clear()
         ACKED[key] = _t.monotonic()
+        if await _noted_elsewhere(city, message, text):
+            return
         await say(city, citizen, text)
 
     task = asyncio.create_task(note())
@@ -187,3 +189,17 @@ async def early_agent_ack(city, message, say, text: str) -> bool:
     except Exception:  # noqa: BLE001 - a courtesy note never fails the turn
         return False
     return True
+
+
+NOTE_CHECK_S = 2.0
+
+
+async def _noted_elsewhere(city, message, text: str) -> bool:
+    """True when another pod already sent this note in the case (a redelivery lands on any of
+    the 10 pods: at 13:27-13:29 the same note went out twice). A slow read sends the note anyway."""
+    try:
+        rows = await asyncio.wait_for(city.history(need_id=message.need_id), NOTE_CHECK_S)
+    except Exception:  # noqa: BLE001 - timeout or relay error: better twice than silence
+        return False
+    return any(getattr(row, "sender", "") == city.agent_id and getattr(row, "recipient", "") == message.sender
+               and (getattr(row, "text", "") or "") == text for row in rows or [])

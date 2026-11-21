@@ -108,9 +108,10 @@ class GPTest(unittest.TestCase):
         gp.gp_ack.ACK_DELAY = 0.05
         gp.gp_ack.ACKED.clear()
         events = []
+        gp.gp_ack.NOTE_CHECK_S = 0.1
         class Hung(City):
             async def history(self, **kwargs):
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(0.5)
                 events.append('history')
                 return await super().history(**kwargs)
             async def say(self, to, text):
@@ -127,6 +128,31 @@ class GPTest(unittest.TestCase):
             self.assertTrue(any(text.startswith('prescription ') for text in to_citizen), c.out)
             self.assertEqual(to_citizen.count(gp.gp_ack.ACK_IT), 1)
             self.assertLess(events.index('note'), events.index('history'), events)
+        finally:
+            gp.gp_ack.ACK_DELAY = 8.0
+            gp.gp_ack.NOTE_CHECK_S = 2.0
+            gp.gp_ack.ACKED.clear()
+
+    def test_note_sent_by_another_pod_is_not_repeated(self):
+        """13:27:02 and 13:28:08: a redelivery landed on another pod and the same note went out twice."""
+        gp.gp_ack.ACK_DELAY = 0.05
+        gp.gp_ack.ACKED.clear()
+        try:
+            async def run():
+                class C(City):
+                    pass
+                c = C(msg('citizen:9', 'Ho mal di schiena'), mode='success')
+                inbound = Message(type='chat', sender='citizen:9', recipient='agent:gp', msg_id='m10', need_id='N-DUP',
+                                  body={'text': 'Ho mal di schiena'})
+                c.inbound = inbound
+                c.rows = [inbound, Message(type='chat', sender=c.agent_id, recipient='citizen:9', msg_id='n0',
+                                           need_id='N-DUP', body={'text': gp.gp_ack.ACK_IT})]
+                async def slow():
+                    await asyncio.sleep(0.2)
+                await gp.gp_ack.with_early_note(c, inbound, slow(), gp._say, gp.gp_ack.ACK_IT)
+                return c
+            c = asyncio.run(run())
+            self.assertEqual([t for to, t in c.out if to == 'citizen:9'], [], c.out)
         finally:
             gp.gp_ack.ACK_DELAY = 8.0
             gp.gp_ack.ACKED.clear()
