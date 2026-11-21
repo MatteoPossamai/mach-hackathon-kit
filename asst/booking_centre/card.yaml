@@ -1,7 +1,7 @@
 agent_id: agent:gdrf9b9kxxss
 team: team:ltf-jecatt
 name: booking_centre
-version: 1.0.25
+version: 1.0.26
 cap_versions:
   - "1.0"
 profiles:
