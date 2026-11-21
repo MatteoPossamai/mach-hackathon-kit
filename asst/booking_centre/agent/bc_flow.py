@@ -173,9 +173,11 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
             cancelled.add(prior.get("slot_id"))
     refused, cutoff = citizen_refusals(history, citizen, previous_offers)
     cancelled |= refused
+    wanted = refusal_filter(history, citizen, previous_offers)
     items = [enrich(item, doctors) for item in items
              if item.get("slot_id") not in exclude and item.get("facility") not in exclude
              and item.get("slot_id") not in cancelled and before_cutoff(item, cutoff)]
+    items = [item for item in items if wanted(item)]
     # The agenda runs 60x: the Ledger waits, the world pages and the LLM took minutes, i.e.
     # hours of agenda, and slots that were "future" at the read came back reason=past.
     now = now + timedelta(minutes=_clock.monotonic() - agenda_read)
@@ -325,6 +327,7 @@ def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict
                 cancelled.add(prior.get("slot_id"))
     refused, cutoff = citizen_refusals(history, citizen, previous_offers)
     cancelled |= refused
+    wanted = refusal_filter(history, citizen, previous_offers)
     requests = ring_requests(history, agent)
     gender = prefs.get("gender_preference", prefs.get("gender", ""))
     for row in history:
@@ -332,7 +335,7 @@ def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict
         if not request or request.get("procedure") != procedure or request.get("priority") != priority:
             continue
         for item in partner_offer_rows(row, request, now):
-            if item.get("slot_id") in cancelled or not before_cutoff(item, cutoff):
+            if item.get("slot_id") in cancelled or not before_cutoff(item, cutoff) or not wanted(item):
                 continue
             offer_id = item["offer_id"]
             earlier = previous_offers.get(offer_id)
@@ -529,7 +532,10 @@ async def confirm_at_facility(city: City, need_id: str, citizen: str, selected: 
         await send(city, citizen, PENDING_NOTE_EN if writes_english(history, citizen) else PENDING_NOTE_IT)
 
 
-DEADLINE_REASONS = frozenset({"deadline", "too_late", "late", "expired", "past"})
+# "past" is the opposite of a deadline: the slot was too EARLY (already gone). Treating it as
+# a cap dropped every later slot (journey 3450004); refusal_filter() moves the floor instead.
+DEADLINE_REASONS = frozenset({"deadline", "too_late", "late", "expired"})
+PAST_REASONS = frozenset({"past", "slot_expired", "expired_slot"})
 
 
 def citizen_refusals(history: list, citizen: str, sent: dict) -> tuple[set, datetime | None]:
@@ -553,6 +559,48 @@ def citizen_refusals(history: list, citizen: str, sent: dict) -> tuple[set, date
             if at and (cutoff is None or at < cutoff):
                 cutoff = at
     return refused, cutoff
+
+
+def refusal_filter(history: list, citizen: str, sent: dict):
+    """What the citizen's cancels say about the next offers: a predicate that keeps a slot.
+
+    reason=past: only slots after the passed one. reason=day: not that weekday again.
+    reason=gender: not that doctor, nor a doctor of the same (known) gender."""
+    floor, days, doctors, genders = None, set(), set(), set()
+    for row in history:
+        if row.sender != citizen or "cancel" not in row.text.replace(",", " ").split():
+            continue
+        data = fields(row.text)
+        prior = sent.get(data.get("offer_id", ""))
+        if not prior:
+            continue
+        reason = data.get("reason", "")
+        at = time(prior.get("at", prior.get("agenda_date", "")))
+        if reason in PAST_REASONS and at and (floor is None or at > floor):
+            floor = at
+        elif reason == "day":
+            day = prior.get("agenda_day", prior.get("day", ""))
+            if day:
+                days.add(day)
+        elif reason == "gender":
+            doctor = prior.get("doctor_id", "")
+            doctors.add(doctor)
+            gender = prior.get("gender") or DOCTORS.get(doctor.rsplit("-", 1)[-1], ("", ""))[1]
+            if gender:
+                genders.add(gender)
+
+    def keep(item: dict) -> bool:
+        at = time(item.get("at", item.get("agenda_date", "")))
+        if floor is not None and (not at or at <= floor):
+            return False
+        if item.get("day", item.get("agenda_day", "")) in days:
+            return False
+        doctor = item.get("doctor_id", "")
+        if doctor in doctors:
+            return False
+        gender = item.get("gender") or DOCTORS.get(doctor.rsplit("-", 1)[-1], ("", ""))[1]
+        return not (gender and gender in genders)
+    return keep
 
 
 def before_cutoff(item: dict, cutoff: datetime | None) -> bool:

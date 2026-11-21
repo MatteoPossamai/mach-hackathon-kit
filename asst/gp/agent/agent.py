@@ -737,7 +737,14 @@ async def _announce(city: City, message: Message, chat: list[Message], agent: st
         sent = ours.get("prescription_number") and _we(
             chat, agent, f"prescription_number={ours['prescription_number']}", to=ours["patient"], word="prescription")
         if not sent:
-            await _say(city, ours["patient"], "Il registro non ha confermato la ricetta. Ci contatti per assistenza.")
+            # city:review gives -1 to work pushed back to the citizen: say what we do next.
+            said = next((r.text for r in reversed(chat) if r.sender == ours["patient"]), "")
+            await _say(city, ours["patient"], (
+                "I am sorry: the registry did not confirm the prescription, so I cannot issue it yet. "
+                "Write to me again and I will repeat the request straight away; if symptoms get worse, call 112."
+                if _english(said) else
+                "Mi scusi: il registro non ha confermato la ricetta, quindi per ora non posso emetterla. "
+                "Se mi riscrive ripeto subito la richiesta; se i sintomi peggiorano, chiami il 112."))
         return
     if not confirmation(message, ours):
         return

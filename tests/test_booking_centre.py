@@ -649,6 +649,30 @@ class RingFixTest(unittest.TestCase):
         self.assertTrue(booking.bc_flow.before_cutoff({'at': '2026-11-16T12:00:00+00:00'}, cutoff))
         self.assertFalse(booking.bc_flow.before_cutoff({'at': '2026-11-18T10:30:00+00:00'}, cutoff))
 
+    def test_past_day_and_gender_refusals_narrow_the_next_offers(self):
+        """Journey 3450004: 'past' was read as a deadline, so every later slot was dropped.
+        past = only slots after it; day = not that weekday; gender = not that doctor's gender."""
+        me = 'agent:team/booking'
+        sent = msg(me, 'offer offer_id=o1 slot_id=S1 doctor_id=asst-x-h1 agenda_date=2026-12-21T10:30:00+00:00 agenda_day=mon\n'
+                       'offer offer_id=o2 slot_id=S2 doctor_id=asst-x-h2 agenda_date=2026-12-22T10:30:00+00:00 agenda_day=tue gender=m\n'
+                       'offer offer_id=o3 slot_id=S3 doctor_id=asst-x-h1 agenda_date=2026-12-23T10:30:00+00:00 agenda_day=wed',
+                   'citizen:1', mid='s')
+        history = [sent,
+                   msg('citizen:1', 'Purtroppo no. cancel offer_id=o1 reason=past', me, mid='r1'),
+                   msg('citizen:1', 'Quel giorno no. cancel offer_id=o3 reason=day', me, mid='r2'),
+                   msg('citizen:1', 'Preferisco altro. cancel offer_id=o2 reason=gender', me, mid='r3')]
+        sent_offers = booking.offers(history, me, 'citizen:1')
+        refused, cutoff = booking.bc_flow.citizen_refusals(history, 'citizen:1', sent_offers)
+        self.assertIsNone(cutoff)
+        keep = booking.bc_flow.refusal_filter(history, 'citizen:1', sent_offers)
+        slot = lambda at, day, doctor, gender='': {'at': at, 'day': day, 'doctor_id': doctor, 'gender': gender}
+        self.assertTrue(keep(slot('2026-12-21T14:30:00+00:00', 'mon', 'asst-x-h1')))   # later the same day
+        self.assertFalse(keep(slot('2026-12-21T09:00:00+00:00', 'mon', 'asst-x-h1')))  # before the passed one
+        self.assertFalse(keep(slot('2026-12-23T14:30:00+00:00', 'wed', 'asst-x-h1')))  # refused weekday
+        self.assertFalse(keep(slot('2026-12-22T14:30:00+00:00', 'tue', 'asst-x-h3', 'm')))  # refused gender
+        self.assertFalse(keep(slot('2026-12-22T14:30:00+00:00', 'tue', 'asst-x-h2')))  # same doctor
+        self.assertTrue(keep(slot('2026-12-22T14:30:00+00:00', 'tue', 'asst-x-c1', 'f')))
+
     def test_english_receipt_still_reads_as_a_receipt(self):
         from city_sdk.city import understood
         text = booking.bc_common.clean_prose('booking.receipt booking_id=B1 ' + booking.receipt_note({'procedure': 'VIS-FIS'}, True))
