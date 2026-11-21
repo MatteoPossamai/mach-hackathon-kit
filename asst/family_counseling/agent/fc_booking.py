@@ -211,6 +211,12 @@ async def on_agent_availability_request(
     before = c.parse_when(fields.get("before", ""))
     deadline = c.parse_when(fields.get("deadline", ""))
 
+    # MACH-1.1: acknowledge within seconds (once per request), the Ledger read below takes longer.
+    ack_token = f"request_id={request_id}" if request_id else ""
+    if not (ack_token and c.we_sent(chat, city.agent_id, ack_token, to=message.sender, word="ack")):
+        await c.say(city, message.sender,
+                    "ack" + (f" {ack_token}" if ack_token else "") + " Ricevuto, verifico la disponibilità.")
+
     now, world, chat = await s.fetch_agenda_and_world(city, message.need_id, chat, urgent=urgent or priority == "U")
     if now is None or world is None:
         return

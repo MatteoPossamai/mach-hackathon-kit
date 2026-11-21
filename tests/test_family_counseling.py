@@ -17,6 +17,11 @@ import fc_ring  # noqa: E402
 import fc_slots  # noqa: E402
 
 
+
+def _noack(out):
+    """Partner replies without the MACH-1.1 ack that precedes them."""
+    return [row for row in out if not row[1].startswith('ack ')]
+
 class FakePeer:
     def __init__(self, agent_id: str, role: str = "booking_centre", capabilities: tuple[str, ...] = ()):
         self.agent_id = agent_id
@@ -150,8 +155,9 @@ class FamilyCounselingTest(unittest.TestCase):
         ]
         city1 = FakeCity(req1, base_hist)
         asyncio.run(fc.main(Need(), city1))
-        self.assertEqual(len(city1.out), 1)
-        first_reply = city1.out[0][1]
+        self.assertTrue(city1.out[0][1].startswith('ack request_id=R-1'))
+        self.assertEqual(len(_noack(city1.out)), 1)
+        first_reply = _noack(city1.out)[0][1]
         self.assertIn("request_id=R-1", first_reply)
 
         # Duplicate need.request with same request_id -> exact same reply (Level 7 idempotency)
@@ -167,8 +173,8 @@ class FamilyCounselingTest(unittest.TestCase):
         )
         city2 = FakeCity(req2, [req2, base_hist[1], base_hist[2]])
         asyncio.run(fc.main(Need(), city2))
-        self.assertEqual(len(city2.out), 1)
-        self.assertIn("cancel reason=no_availability request_id=R-2", city2.out[0][1])
+        self.assertEqual(len(_noack(city2.out)), 1)
+        self.assertIn("cancel reason=no_availability request_id=R-2", _noack(city2.out)[0][1])
 
     def test_partner_relaxed_offers_level5(self):
         # Ask for Monday (mon), but slots are only on Tue/Thu -> cancel + relaxed=days
@@ -185,8 +191,8 @@ class FamilyCounselingTest(unittest.TestCase):
         ]
         city = FakeCity(req, hist)
         asyncio.run(fc.main(Need(), city))
-        self.assertEqual(len(city.out), 1)
-        reply = city.out[0][1]
+        self.assertEqual(len(_noack(city.out)), 1)
+        reply = _noack(city.out)[0][1]
         self.assertIn("cancel reason=no_availability request_id=R-REL", reply)
         self.assertIn("relaxed=days", reply)
 

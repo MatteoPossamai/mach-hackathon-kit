@@ -209,6 +209,8 @@ async def _resume_pending_offers(city: City, chat: list[Message], key: str, *, u
         if "confirm" in kind or "checkin" in kind:
             return
         if row.sender.startswith("agent:"):
+            if c.first_word(row.text) in {"ack", "handoff", "booking.notice"}:
+                continue
             await bk.on_agent_availability_request(city, row, chat, key, urgent=urgent)
             return
         if row.sender.startswith("citizen:"):
@@ -296,6 +298,9 @@ async def _dispatch(city: City, message: Message, chat: list[Message], key: str,
             return
         if parsed.type == "offer" or "offer" in kind:
             await ring.on_partner_offer(city, message, chat)
+            return
+        if head in {"ack", "handoff", "booking.notice"}:
+            # A notice or an acknowledgement is not an availability request: no ping-pong.
             return
         await bk.on_agent_availability_request(city, message, chat, key, urgent=urgent)
         return
