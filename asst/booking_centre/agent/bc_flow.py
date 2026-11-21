@@ -44,9 +44,23 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         # Our guess from the case code did not match a prescription: only now ask the citizen.
         await ask_number(city, citizen, english)
         return
+    for _ in range(3):
+        if rx and agenda:
+            break
+        # The Ledger can lag behind the GP by a few seconds: ask again ourselves, never hand
+        # the retry to the citizen (a simulated citizen does not "try again shortly").
+        if not rx:
+            await send(city, LEDGER, f"prescription prescription_number={number}")
+        if not agenda:
+            await send(city, LEDGER, "agenda")
+        history = await wait_for(city, need_id, ready, LEDGER_WAIT)
+        rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
+        agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
     if not rx or not agenda:
-        await send(city, citizen, "I cannot verify the prescription yet. Please try again shortly." if english
-                   else "Non riesco ancora a verificare la ricetta. Riprovi tra poco.")
+        await send(city, citizen, "The registry is not answering right now, so I cannot check your referral yet. "
+                   "Write to me again in a moment and I will check it at once." if english
+                   else "Il registro in questo momento non risponde e non riesco a verificare la ricetta. "
+                   "Mi riscriva tra un momento e la controllo subito.")
         return
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
@@ -72,7 +86,8 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         prefs = {key: value for key, value in prefs.items() if key != "lang"}
     items, doctors = [], {}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
-    for page in range(1, 21):
+    items, doctors, history, read = await read_world(city, need_id, history, procedure)
+    for page in range(1, 1 if read else 21):
         page_seen = {row.msg_id for row in history}
         await send(city, LEDGER, f"world procedure={procedure} page={page}")
         is_page = lambda m: m.sender == LEDGER and act(m.text) == "slots" and slots_page(m) == str(page)
@@ -118,6 +133,11 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     if not candidates:
         if relax_lang:
             await send(city, citizen, NOTHING_EN if english else NOTHING_IT)
+            return
+        if any(row.sender == city.agent_id and act(row.text) == "need.request" and row.recipient.startswith("agent:")
+               for row in history):
+            # The partners were already asked in this case: use what they sent, never start over.
+            await remote_offers(city, need_id, history, citizen)
             return
         await find_partners(city, need_id, citizen, procedure, priority, history)
         return
@@ -178,7 +198,7 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
                    else "Nella nostra ASST non ci sono posti adatti: sto chiedendo alle strutture partner. Le chiederò il consenso prima di condividere i suoi dati.")
         peers_sent = {peer.agent_id for peer in peers}
         replied = lambda h: any(row.sender in peers_sent and row.recipient == city.agent_id
-                                and any(act(line) in {"offer", "cancel", "unavailable"} for line in row.text.splitlines())
+                                and any(act(line) == "offer" for line in row.text.splitlines())
                                 for row in h)
         history = await wait_for(city, need_id, replied, RING_WAIT)
         if not replied(history):
@@ -234,8 +254,11 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             at = time(item.get("at", item.get("agenda_date", "")))
             if at and not (item.get("day") or item.get("agenda_day")):
                 item["day"] = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")[at.weekday()]
+            if prefs.get("lang") and prefs["lang"] != "it" and not item.get("languages"):
+                continue  # never trust that a partner applied our language filter
             if valid_slot(item, procedure, priority, now, prefs, assume_known=False):
                 candidates.append(item)
+    english = writes_english(history, citizen)
     lines = []
     for item in candidates:
         line = offer_line(item, number, priority)
@@ -243,9 +266,13 @@ async def remote_offers(city: City, need_id: str, history: list, citizen: str) -
             break
         lines.append(line)
     if lines:
-        await send(city, citizen, "\n".join(lines))
+        await send(city, citizen, "\n".join(lines) + "\n" + (
+            "These slots are at a partner facility of another ASST and fit your referral and your needs: "
+            "tell me which one you prefer, I will share only the data needed to book it." if english else
+            "Questi posti sono in una struttura partner di un'altra ASST e rispettano la ricetta e le sue esigenze: "
+            "mi dica quale preferisce, condividerò solo i dati necessari per prenotarlo."))
     else:
-        await send(city, citizen, "Non riesco ancora a verificare un'offerta adatta. Continueremo a cercare.")
+        await language_fallback(city, need_id, history, citizen)
 
 
 # A lost response is not evidence that the booking failed. A second city.say
@@ -492,3 +519,33 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
             f"Nessun medico che parla {name[0]} è libero entro la scadenza, né qui né nelle strutture partner. "
             "Questi sono i primi posti validi con un altro medico; il personale la aiuterà durante la visita.")
     await search(city, need_id, history, citizen, number, lead=lead, relax_lang=True)
+
+
+# --- the world in parallel: page 1, then every other page at once ------------------------
+
+async def read_world(city: City, need_id: str, history: list, procedure: str):
+    """Ledger world pages, asked together after page 1 tells how many there are."""
+    seen = {row.msg_id for row in history}
+    await send(city, LEDGER, f"world procedure={procedure} page=1")
+    page_of = lambda m: slots_page(m) if m.sender == LEDGER and act(m.text) == "slots" and m.msg_id not in seen else None
+    history = await wait_for(city, need_id, lambda h: any(page_of(m) == "1" for m in h))
+    first = next((m for m in reversed(history) if page_of(m) == "1"), None)
+    if first is None:
+        return [], {}, history, False
+    info = fields(first.text.splitlines()[0]).get("page", "1/1").split("/")
+    total = int(info[1]) if len(info) == 2 and info[1].isdigit() else 1
+    total = max(1, min(total, 20))
+    for page in range(2, total + 1):
+        await send(city, LEDGER, f"world procedure={procedure} page={page}")
+    wanted = {str(page) for page in range(1, total + 1)}
+    if total > 1:
+        history = await wait_for(city, need_id, lambda h: wanted <= {page_of(m) for m in h}, LEDGER_WAIT)
+    items, doctors, done = [], {}, set()
+    for row in history:
+        page = page_of(row)
+        if page in wanted and page not in done:
+            done.add(page)
+            lines = row.text.splitlines()[1:]
+            doctors.update(doctor_attrs(lines))
+            items.extend(fields(line) for line in lines if "slot_id=" in line)
+    return items, doctors, history, done == wanted

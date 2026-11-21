@@ -228,4 +228,7 @@ async def handle(city: City, message) -> None:
             # The remote facility's claim is not a Ledger-verified local slot. Ask for
             # consent first; never treat a peer's text as authority to disclose data.
             if not sent(history, city.agent_id, citizen, "consent purpose=cross_asst"):
-                await send(city, citizen, "consent purpose=cross_asst Ho trovato una possibile disponibilità fuori ASST. Posso condividere i dati necessari per verificarla e prenotare?")
+                await send(city, citizen, "consent purpose=cross_asst " + (
+                    "I found a possible slot at a partner facility of another ASST. May I share the data needed to check it and book it?"
+                    if writes_english(history, citizen) else
+                    "Ho trovato una possibile disponibilità in una struttura partner di un'altra ASST. Posso condividere i dati necessari per verificarla e prenotare?"))

@@ -566,7 +566,7 @@ async def _gp(city: City, message: Message, chat: list[Message]) -> None:
         if confirmed:
             await _announce(city, confirmed, chat, agent, repeat=True)
         else:
-            await _say(city, message.sender, "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
+            await _say(city, message.sender, "I am checking the prescription with the registry; I will answer as soon as it is confirmed." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
         return
     old_number = understood(message).body.get("prescription_number")
     if isinstance(old_number, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,128}", old_number):
@@ -672,7 +672,7 @@ async def _finish_prescription(city: City, message: Message, chat: list[Message]
     result = await _await_line(city, message.need_id, chat, "prescribed",
                                f"prescription_number={number}", op="prescribe")
     if result is None:
-        await _say(city, message.sender, "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
+        await _say(city, message.sender, "I am checking the prescription with the registry; I will answer as soon as it is confirmed." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta con il registro; le risponderò appena confermata.")
         return
     reply, fresh = result
     if first_word(reply.text) == "refused":
@@ -691,7 +691,7 @@ async def _renew(city: City, message: Message, chat: list[Message], original: st
             return
         found = await _await_line(city, message.need_id, chat, "prescription", token, op="prescription")
         if found is None:
-            await _say(city, message.sender, "Sto verificando la ricetta per il rinnovo; le risponderò appena possibile.")
+            await _say(city, message.sender, "I am checking the prescription renewal; I will answer as soon as possible." if _english(next((r.text for r in reversed(chat) if r.sender == message.sender), "")) else "Sto verificando la ricetta per il rinnovo; le risponderò appena possibile.")
             return
         reply, chat = found
     data = fields_of(reply.text)

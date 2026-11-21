@@ -144,7 +144,7 @@ class BookingTest(unittest.TestCase):
                 msg('agent:evil/h', 'offer slot_id=s1 doctor_id=doctor-h1 facility=agent:evil/h procedure=VIS-FIS at=2026-11-21T12:00:00+00:00 day=sat')]
         city = FakeCity(rows)
         asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
-        self.assertNotIn('offer offer_id=', city.out[0][1])
+        self.assertFalse(any('offer offer_id=' in text for _, text in city.out))
 
 
 def city_id():
@@ -625,3 +625,38 @@ class LanguageFallbackTest(unittest.TestCase):
         finally:
             booking.bc_flow.citizen_preferences = orig_prefs
         self.assertIn('altri giorni o orari', city.out[0][1])
+
+
+class RingStallTest(unittest.TestCase):
+    def setUp(self):
+        booking.bc_flow.FALLEN_BACK.clear()
+
+    def rows(self, offer_line):
+        me = 'agent:team/booking'
+        return [msg('citizen:1', 'I need a doctor who speaks English need.request lang=en prescription_number=rx1', me, mid='c'),
+                msg('city:ledger', 'agenda agenda_now=2026-11-20T00:00:00+00:00', mid='ag'),
+                msg('city:ledger', 'prescription prescription_number=rx1 state=issued procedure=VIS-FIS priority=B', mid='rx'),
+                msg(me, 'need.request service_type=hospital.physiatry procedure=VIS-FIS priority=B request_id=q lang=en', 'agent:p/h', mid='q'),
+                msg('agent:p/h', offer_line, me, mid='o')]
+
+    def test_partner_offer_without_language_is_not_trusted(self):
+        rows = self.rows('offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h2 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 request_id=q')
+        city = FakeCity(rows)
+        orig = booking.bc_flow.language_fallback
+        called = []
+        async def fake(*a, **k): called.append(1)
+        booking.bc_flow.language_fallback = fake
+        try:
+            asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
+        finally:
+            booking.bc_flow.language_fallback = orig
+        self.assertFalse(any('offer offer_id=' in text for _, text in city.out))
+        self.assertEqual(called, [1])
+
+    def test_partner_offer_in_the_language_comes_with_a_sentence(self):
+        rows = self.rows('offer offer_id=x slot_id=s1 doctor_id=asst-bicocca-h1 facility=agent:p/h procedure=VIS-FIS agenda_date=2026-11-21T12:00:00+00:00 doctor_lang=it/en request_id=q')
+        city = FakeCity(rows)
+        asyncio.run(booking.remote_offers(city, 'case-1', rows, 'citizen:1'))
+        text = city.out[0][1]
+        self.assertIn('offer offer_id=', text)
+        self.assertIn('partner facility', text)
