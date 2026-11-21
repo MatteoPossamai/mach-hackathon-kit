@@ -236,5 +236,19 @@ class FamilyCounselingTest(unittest.TestCase):
         self.assertEqual(len(checkins), 1)
 
 
+class LeadTimeTest(unittest.TestCase):
+    """Citizens answer 1-8 real minutes (agenda hours) after the offer: near slots come back reason=past."""
+
+    def test_non_urgent_offers_skip_slots_that_pass_before_the_citizen_answers(self):
+        now = datetime(2026, 12, 3, 6, 30, tzinfo=UTC)
+        world = ("slots page=1/1\n"
+                 "slot_id=near doctor_id=asst-x-c1 procedure=CONS-GIN at=2026-12-03T12:30:00+00:00 day=thu free=1\n"
+                 "slot_id=far doctor_id=asst-x-c1 procedure=CONS-GIN at=2026-12-03T19:30:00+00:00 day=thu free=1\n"
+                 "slot_id=next doctor_id=asst-x-c1 procedure=CONS-GIN at=2026-12-04T10:30:00+00:00 day=fri free=1")
+        ids = [s["slot_id"] for s in fc_slots.fitting_slots(world, now=now, agent_id="agent:fc", priority=None, lang="it")]
+        self.assertNotIn("near", ids)
+        self.assertIn("next", ids)
+
+
 if __name__ == "__main__":
     unittest.main()

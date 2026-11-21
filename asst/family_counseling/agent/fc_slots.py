@@ -10,7 +10,9 @@ from city_sdk.city import LEDGER, City, Message
 
 import fc_common as c
 
-LEAD = timedelta(hours=4)
+# One agenda hour is one real minute. Citizens confirmed 1-8 real minutes after the offer and
+# hold/commit took ~4 more, so 4 h slots came back "cancel reason=past" (05:13Z, 07:12Z).
+LEAD = timedelta(hours=12)
 URGENT_LEAD = timedelta(minutes=30)
 DEADLINE_DAYS = {"B": 2, "D": 5}
 SOFT_LOCK_TTL_S = 60.0
