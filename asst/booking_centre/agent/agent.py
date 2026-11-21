@@ -63,6 +63,8 @@ async def main(need: Need, city: City) -> None:
         try:
             if incoming.sender.startswith("citizen:") and "cancel" in incoming.text.replace(",", " ").split():
                 rows = await city.history(need_id=incoming.need_id)
+                if simultaneous_confirmation(rows, incoming):
+                    return
                 index = next((i for i, row in enumerate(rows) if row.msg_id == incoming.msg_id), None)
                 if index is not None and any(row.sender == incoming.sender and "cancel" in row.text.replace(",", " ").split()
                                              for row in rows[index + 1:]):
@@ -89,7 +91,8 @@ async def book_choice(city: City, message, history: list, citizen: str, selected
     if not consent or (remote and not cross):
         purpose = "cross_asst" if remote else "booking"
         english = writes_english(history, citizen)
-        await send(city, citizen, f"consent purpose={purpose} " + (
+        offer_id = selected["offer_id"]
+        await send(city, citizen, f"consent purpose={purpose} offer_id={offer_id} " + (
             "May I proceed with the booking you chose?" if english
             else "Posso procedere con la prenotazione scelta?"))
         return
@@ -142,12 +145,20 @@ async def follow_up(city: City, need_id: str, history: list, citizen: str) -> No
         offer = offers(history, city.agent_id, citizen).get(confirm.get("offer_id", ""), {})
         await send(city, citizen, recap_note(booking_id, offer, english))
         return
-    message = city.inbound
+    message = getattr(city, "inbound", None)
     refusing = message is not None and "cancel" in message.text.replace(",", " ").split()
     if message is not None and not refusing and latest_offers(history, city.agent_id, citizen):
-        selected = await resolve_choice(city, history, citizen, message.text, use_llm=False)
-        if selected and selected.get("slot_id"):
-            await book_choice(city, message, history, citizen, selected, fields(message.text))
+        intent, selected = await interpret_booking_reply(city, history, citizen, message.text)
+        if intent == "choose" and selected:
+            await book_choice(city, message, history, citizen, selected, {})
+            return
+        if intent == "unclear":
+            await ask_offer(city, history, citizen)
+            return
+        if intent == "decline":
+            await send(city, citizen, (
+                "Which days or times would work better for you?" if english else
+                "Quali giorni o orari le andrebbero meglio?"))
             return
     number = case_number(history, citizen)
     if number and TOKEN.fullmatch(number):
@@ -161,6 +172,90 @@ async def follow_up(city: City, need_id: str, history: list, citizen: str) -> No
         await search(city, need_id, history, citizen, guess, guessed=True)
         return
     await ask_number(city, citizen, english)
+
+
+async def ask_offer(city: City, history: list, citizen: str) -> None:
+    await send(city, citizen, (
+        "Which appointment would you like? You can tell me the day and time, or say 'the first one'."
+        if writes_english(history, citizen) else
+        "Quale appuntamento preferisce? Può indicarmi giorno e ora, oppure dire 'il primo'."))
+
+
+def simultaneous_confirmation(history: list, message) -> bool:
+    data = fields(message.text)
+    cancelled = data.get("offer_id")
+    if not message.sent_at or not cancelled or data.get("reason") != "past":
+        return False
+    return any(row.sender == message.sender and row.recipient == message.recipient
+               and row.sent_at == message.sent_at and understood(row).type == "confirm"
+               and (offer_id := fields(row.text).get("offer_id")) and offer_id != cancelled
+               for row in history)
+
+
+async def resume_consent(city: City, message, history: list, citizen: str,
+                         request: str, purpose: str, ref: str) -> None:
+    requested_offer = fields(request).get("offer_id")
+    offer_id = requested_offer or (CHOSEN.get(message.need_id, "") if purpose == "booking" else "")
+    if not offer_id:
+        offer_id = next((fields(row.text).get("offer_id", "") for row in reversed(history)
+                         if row.sender == citizen and understood(row).type == "confirm"), "")
+    selected = offers(history, city.agent_id, citizen).get(offer_id)
+    if offer_id in withdrawn_offer_ids(history, city.agent_id, citizen):
+        await ask_offer(city, history, citizen)
+        return
+    if selected and selected.get("slot_id") and (requested_offer or purpose == "booking"
+            or sent(history, city.agent_id, selected.get("facility", ""), "need.request ")):
+        booking_ref = ref if purpose == "booking" else next(
+            (data["consent_ref"] for row in reversed(history)
+             if row.sender == citizen and understood(row).type == "confirm"
+             and (data := fields(row.text)).get("offer_id") == offer_id and data.get("consent_ref")), "")
+        await book_choice(city, message, history, citizen, selected, {"consent_ref": booking_ref})
+    elif purpose == "cross_asst":
+        await remote_offers(city, message.need_id, history, citizen)
+    else:
+        await ask_offer(city, history, citizen)
+
+
+async def handle_pending_consent(city: City, message, history: list, citizen: str, kind: str) -> bool:
+    request = last_sent_to_citizen(history, city.agent_id, citizen)
+    pending = consent_request_purpose(request)
+    purpose, ref, denied = consent_reply(message)
+    if ref and not denied and (purpose or pending) == pending and pending:
+        await resume_consent(city, message, history, citizen, request, pending, ref)
+        return True
+    if not pending or fields(message.text).get("prescription_number"):
+        return False
+    if pending == "cross_asst" and cross_consent(history, city.agent_id, citizen):
+        return False
+    if not denied and kind not in {"consent", "data.response"}:
+        intent, selected = await interpret_booking_reply(
+            city, history, citizen, message.text, pending_consent=pending)
+        if intent == "preferences":
+            return False
+        if intent == "choose" and selected:
+            await book_choice(city, message, history, citizen, selected, {})
+            return True
+        denied = intent == "decline"
+    english = writes_english(history, citizen)
+    if not denied and act(request) == "consent":
+        offer_id = fields(request).get("offer_id")
+        selection = f" offer_id={offer_id}" if offer_id else ""
+        question = (
+            "May I share the details needed to book with the partner facility?"
+            if english else "Posso condividere con la struttura partner i dati necessari per prenotare?"
+        ) if pending == "cross_asst" else (
+            "May I book the time you chose?" if english else "Posso prenotare l’orario che ha scelto?"
+        )
+        await send(city, citizen, f"data.request purpose={pending} fields=consent_ref{selection} " + (
+            question + (" You do not need to look up a code." if english else " Non deve cercare un codice.")))
+    elif pending == "cross_asst":
+        await language_fallback(city, message.need_id, history, citizen)
+    else:
+        await send(city, citizen, (
+            "Your permission is still needed. Tell me if you would like to proceed or choose another time."
+            if english else
+            "Serve ancora la sua autorizzazione. Mi dica se vuole procedere o scegliere un altro orario."))
+    return True
 
 
 def is_red_flag(message) -> bool:
@@ -187,7 +282,11 @@ async def handle(city: City, message) -> None:
             await follow_up(city, message.need_id, history, citizen)
             return
         if kind == "confirm":
-            selected = offers(history, city.agent_id, citizen).get(data.get("offer_id", ""))
+            offer_id = data.get("offer_id", "")
+            if offer_id in withdrawn_offer_ids(history, city.agent_id, citizen):
+                await ask_offer(city, history, citizen)
+                return
+            selected = offers(history, city.agent_id, citizen).get(offer_id)
             if selected and selected.get("waiting_list") == "true":
                 await send(city, citizen, "Ha scelto l'opzione di lista d'attesa.")
                 return
@@ -195,53 +294,21 @@ async def handle(city: City, message) -> None:
                 # Level 3: the choice may be written in words ("la seconda", "martedì alle 12").
                 selected = await resolve_choice(city, history, citizen, message.text, use_llm=True)
             if not selected or not selected.get("slot_id"):
-                english = writes_english(history, citizen)
-                await send(city, citizen, "Which of the offers I sent do you prefer? You can tell me the day and time, or 'the first one'." if english
-                           else "Quale delle offerte che le ho inviato preferisce? Può indicarmi giorno e ora, oppure dirmi 'la prima'.")
+                await ask_offer(city, history, citizen)
                 return
             await book_choice(city, message, history, citizen, selected, data)
             return
-        consent_ref = data.get("consent_ref", "")
-        if not consent_ref and message.type != "chat":
-            raw_ref = message.body.get("consent_ref")
-            if not raw_ref and isinstance(message.body.get("provided"), dict):
-                raw_ref = message.body["provided"].get("consent_ref")
-            consent_ref = raw_ref if isinstance(raw_ref, str) else ""
-        pending_consent = last_asked_consent(history, city.agent_id, citizen)
-        if kind in {"consent", "data.response"} and consent_ref:
-            purpose = data.get("purpose", "") or pending_consent
-            if purpose == "cross_asst" and asked_consent(history, city.agent_id, citizen, "cross_asst"):
-                choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
-                               if row.sender == citizen and understood(row).type == "confirm"), "")
-                selected = offers(history, city.agent_id, citizen).get(choice)
-                if selected and selected.get("slot_id") and sent(history, city.agent_id, selected.get("facility", ""), "need.request "):
-                    booking_consent = next((fields(row.text).get("consent_ref", "") for row in reversed(history)
-                                            if row.sender == citizen and act(row.text) == "confirm"), "")
-                    await confirm_at_facility(city, message.need_id, citizen, selected,
-                                              booking_consent or consent_ref, consent_ref)
-                else:
-                    await remote_offers(city, message.need_id, history, citizen)
-            elif purpose in {"", "booking"} and asked_consent(history, city.agent_id, citizen, "booking"):
-                # Resume the last genuine citizen choice with this consent, not data
-                # supplied by a peer or a new slot embedded in the consent response.
-                choice = next((fields(row.text).get("offer_id", "") for row in reversed(history)
-                               if row.sender == citizen and act(row.text) == "confirm"
-                               and fields(row.text).get("offer_id")), "") or CHOSEN.get(message.need_id, "")
-                selected = offers(history, city.agent_id, citizen).get(choice)
-                if selected and selected.get("slot_id"):
-                    cross = cross_consent(history, city.agent_id, citizen)
-                    await confirm_at_facility(city, message.need_id, citizen, selected, consent_ref, cross)
-            return
-        if pending_consent == "cross_asst" and not cross_consent(history, city.agent_id, citizen) and not data.get("prescription_number"):
-            # Refusal or missing consent_ref: never share data with partner ASSTs, fall back locally.
-            await language_fallback(city, message.need_id, history, citizen)
-            return
-        if pending_consent == "booking" and kind in {"consent", "data.response"} and not data.get("prescription_number"):
-            english = writes_english(history, citizen)
-            await send(city, citizen, (
-                "Without your permission I cannot complete the booking. Let me know if you would like to choose another slot or proceed."
-                if english else
-                "Senza la sua autorizzazione non posso completare la prenotazione. Mi dica se desidera scegliere un altro posto o procedere."))
+        if kind == "cancel" and data.get("offer_id") and data.get("reason") == "past":
+            cancelled = data["offer_id"]
+            if simultaneous_confirmation(history, message):
+                return
+            if any(item["offer_id"] != cancelled for item in latest_offers(history, city.agent_id, citizen)):
+                await send(city, citizen, (
+                    "That time has passed. Which of the other times would work?"
+                    if writes_english(history, citizen) else
+                    "Quell’orario è passato. Quale degli altri orari le andrebbe bene?"))
+                return
+        if await handle_pending_consent(city, message, history, citizen, kind):
             return
         number = data.get("prescription_number", "")
         if not number and message.type != "chat":
@@ -253,6 +320,8 @@ async def handle(city: City, message) -> None:
             # The number written in free text, e.g. "la ricetta è prescription_number-N-...".
             number = rx_from_text(history, citizen, message.text)
         if not number and kind == "data.response":
+            number = case_number(history, citizen)
+        if not number and last_sent_to_citizen(history, city.agent_id, citizen).startswith(LANGUAGE_QUESTION + " "):
             number = case_number(history, citizen)
         if number and TOKEN.fullmatch(number):
             await search(city, message.need_id, history, citizen, number)
