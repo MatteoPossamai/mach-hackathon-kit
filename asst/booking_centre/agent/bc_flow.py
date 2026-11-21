@@ -19,6 +19,23 @@ ACK_IT = "Ricevuto, verifico la ricetta e la disponibilità: le rispondo tra poc
 ACK_EN = "Received: I am checking your referral and the availability, I will answer in a few moments."
 
 
+async def wait_for_language(city: City, citizen: str, prefs: dict[str, str], english: bool) -> bool:
+    conflict = prefs.get("language_conflict")
+    if not conflict:
+        return bool(prefs.get("language_pending"))
+    names = {**LANG_NAMES, "it": ("italiano", "Italian"), "am": ("amarico", "Amharic")}
+    recorded = prefs["lang"]
+    index = int(english)
+    requested_name = names.get(conflict, (conflict, conflict))[index]
+    recorded_name = names.get(recorded, (recorded, recorded))[index]
+    await send(city, citizen, LANGUAGE_QUESTION + " " + (
+        f"Which language should the doctor speak for this visit, {requested_name} or {recorded_name}?"
+        if english else
+        f"Quale lingua deve parlare il medico per questa visita, {requested_name} o {recorded_name}?"
+    ))
+    return True
+
+
 async def search(city: City, need_id: str, history: list, citizen: str, number: str,
                  exclude: frozenset = frozenset(), lead: str = "", guessed: bool = False,
                  relax_lang: bool = False) -> None:
@@ -93,6 +110,8 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
                       else "Per questa priorità è disponibile la lista d'attesa."))
         return
     prefs = await prefs_task
+    if await wait_for_language(city, citizen, prefs, english):
+        return
     if (not relax_lang and not prefs.get("days") and has_vague_days(history, citizen)
             and not sent(history, city.agent_id, citizen, "data.request purpose=booking fields=days")
             and not offers(history, city.agent_id, citizen)):
@@ -168,6 +187,8 @@ async def find_partners(city: City, need_id: str, citizen: str, procedure: str, 
     capability = CAPABILITY.get(procedure, "")
     peers = []
     prefs = await citizen_preferences(city, history, citizen)
+    if await wait_for_language(city, citizen, prefs, writes_english(history, citizen)):
+        return
     lang = prefs.get("lang", "")
     for query in ([capability] if capability else []) + [procedure]:
         try:
@@ -218,6 +239,8 @@ def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict
     The local Ledger does not expose other ASSTs' slots, so the partner remains
     responsible for its availability and the Ledger-backed booking.
     """
+    if prefs.get("language_conflict") or prefs.get("language_pending"):
+        return []
     agenda = ledger_reply(history, "agenda")
     rx = ledger_reply(history, "prescription")
     now = agenda_clock(agenda)
@@ -266,8 +289,10 @@ def matching_partner_offers(history: list, agent: str, citizen: str, prefs: dict
 
 async def remote_offers(city: City, need_id: str, history: list, citizen: str) -> None:
     prefs = await citizen_preferences(city, history, citizen)
-    candidates = matching_partner_offers(history, city.agent_id, citizen, prefs)
     english = writes_english(history, citizen)
+    if await wait_for_language(city, citizen, prefs, english):
+        return
+    candidates = matching_partner_offers(history, city.agent_id, citizen, prefs)
     lines = []
     assts = {}
     for item in candidates:
@@ -516,12 +541,12 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
 # Partner teams answer in 30-60 s: a shorter watchdog drops their offers.
 RING_WAIT = 50.0
 FALLEN_BACK: set[str] = set()
-NOTHING_IT = ("Ho cercato nella nostra ASST e nelle strutture partner: entro la scadenza della ricetta "
-              "non ci sono posti liberi. Se può, mi indichi altri giorni o orari possibili e riprovo subito; "
-              "se i sintomi peggiorano, contatti il medico o il 112.")
-NOTHING_EN = ("I searched our ASST and the partner facilities: there are no free slots within your "
-              "deadline. If you can, tell me other days or times and I will search again at once; "
-              "if your symptoms get worse, contact your doctor or call 112.")
+NOTHING_IT = ("Finora non ho trovato posti confermati entro la scadenza della ricetta nella nostra ASST "
+              "o presso le strutture partner. Se può, mi indichi altri giorni o orari possibili e riprovo subito. "
+              "Se i sintomi peggiorano, contatti il medico o il 112.")
+NOTHING_EN = ("So far I have found no confirmed slots within your deadline at our ASST or at partner "
+              "facilities. If you can, tell me other days or times and I will search again at once. "
+              "If your symptoms get worse, contact your doctor or call 112.")
 
 
 def nothing_offer(need_id: str, english: bool) -> str:
@@ -538,19 +563,21 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
     """Ring empty or silent: offer valid local slots with another doctor, saying so."""
     if need_id in FALLEN_BACK:
         return
-    FALLEN_BACK.add(need_id)
     english = writes_english(history, citizen)
     prefs = await citizen_preferences(city, history, citizen)
+    if await wait_for_language(city, citizen, prefs, english):
+        return
+    FALLEN_BACK.add(need_id)
     lang = prefs.get("lang", "")
     number = case_number(history, citizen)
     if not lang or lang == "it" or not number or not TOKEN.fullmatch(number):
         await send(city, citizen, nothing_offer(need_id, english))
         return
     name = LANG_NAMES.get(lang, (lang, lang))
-    lead = (f"No doctor who speaks {name[1]} is free within your deadline, here or at partner facilities. "
+    lead = (f"So far I have found no confirmed slots with a doctor who speaks {name[1]} within your deadline. "
             "These are the first valid slots with another doctor; the staff will help you at the visit."
             if english else
-            f"Nessun medico che parla {name[0]} è libero entro la scadenza, né qui né nelle strutture partner. "
+            f"Finora non ho trovato posti confermati entro la scadenza con un medico che parla {name[0]}. "
             "Questi sono i primi posti validi con un altro medico; il personale la aiuterà durante la visita.")
     await search(city, need_id, history, citizen, number, lead=lead, relax_lang=True)
 
