@@ -548,7 +548,7 @@ def mark(registry: dict, lines: list, need_id: str) -> None:
 # --- language fallback: never "no slot" while a valid slot exists ------------------------
 
 # Partner teams answer in 30-60 s: a shorter watchdog drops their offers.
-RING_WAIT = 50.0
+RING_WAIT = 150.0  # partners answer slowly under load; the citizen already has our "asking partners" note
 FALLEN_BACK: set[str] = set()
 NOTHING_IT = ("Finora non ho trovato posti confermati entro la scadenza della ricetta nella nostra ASST "
               "o presso le strutture partner. Se può, mi indichi altri giorni o orari possibili e riprovo subito. "
