@@ -321,6 +321,27 @@ def agenda_clock(row):
     return now + _td(seconds=elapsed * AGENDA_RATE)
 
 
+# The last Ledger agenda reply this pod saw, reused by later cases (agenda_clock moves it forward
+# by the real time since it was sent). At 13:50 every "agenda" queued ~17 min behind the others.
+AGENDA_TTL = 120.0
+AGENDA_SEEN: list = [None, 0.0]  # [row, loop-independent monotonic time]
+
+
+def remember_agenda(row) -> None:
+    import time as _mono
+    if row is not None and agenda_clock(row) is not None:
+        AGENDA_SEEN[0], AGENDA_SEEN[1] = row, _mono.monotonic()
+
+
+def cached_agenda():
+    """A recent agenda reply of this pod, or None (then the case asks the Ledger)."""
+    import time as _mono
+    row, at = AGENDA_SEEN
+    if row is None or AGENDA_TTL <= 0 or _mono.monotonic() - at > AGENDA_TTL:
+        return None
+    return row
+
+
 # (need_id, purpose) -> monotonic time of the consent request sent by this pod.
 _CONSENT_ASKED: dict[tuple[str, str], float] = {}
 

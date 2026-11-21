@@ -65,24 +65,27 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     prefs_task = asyncio.ensure_future(citizen_preferences(city, history, citizen))
     prefs_task.add_done_callback(lambda t: t.cancelled() or t.exception())
     # Read the prescription ourselves: a citizen or another agent cannot certify it.
+    # The Ledger answers every request in order: at 13:50 each one queued ~17 min behind the
+    # others, so ask only what we lack ("rules" was never read, a recent agenda is reused).
+    known_agenda = cached_agenda()
     await asyncio.gather(
         send(city, LEDGER, f"prescription prescription_number={number}"),
-        send(city, LEDGER, "agenda"),
-        send(city, LEDGER, "rules"),
+        *([] if known_agenda is not None else [send(city, LEDGER, "agenda")]),
     )
     match = ("prescription_number", number)
+    agenda_of = lambda h: fresh_reply(h, seen, "agenda") or known_agenda
     ready = lambda h: (fresh_reply(h, seen, "prescription", match) is not None or ledger_refused(h, seen, "prescription")) \
-        and fresh_reply(h, seen, "agenda") is not None
+        and agenda_of(h) is not None
     history = await wait_for(city, need_id, ready, LEDGER_WAIT)
     if not ready(history) and not ledger_refused(history, seen, "prescription"):
-        # A slow Ledger is a timeout, not a refusal: asking once more is allowed.
+        # A slow Ledger is a timeout, not a refusal: asking once more covers a lost request.
         if fresh_reply(history, seen, "prescription", match) is None:
             await send(city, LEDGER, f"prescription prescription_number={number}")
-        if fresh_reply(history, seen, "agenda") is None:
+        if agenda_of(history) is None:
             await send(city, LEDGER, "agenda")
         history = await wait_for(city, need_id, ready, LEDGER_WAIT)
     rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
-    agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
+    agenda = agenda_of(history) or ledger_reply(history, "agenda")
     if guessed and (not rx or fields(rx.text).get("state") != "issued"):
         # Our guess from the case code did not match a prescription: only now ask the citizen.
         await ask_number(city, citizen, english)
@@ -90,15 +93,12 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     started, attempt = asyncio.get_running_loop().time(), 0
     while not (rx and agenda) and await ledger_pause(attempt, started):
         attempt += 1
-        # The Ledger can lag behind the GP, or for minutes under load: ask again ourselves,
-        # never hand the retry to the citizen (a simulated citizen does not "try again shortly").
-        if not rx:
-            await send(city, LEDGER, f"prescription prescription_number={number}")
-        if not agenda:
-            await send(city, LEDGER, "agenda")
+        # The Ledger lags for minutes under load but answers every request: keep waiting for the
+        # answers already asked (a new request would only queue behind them), never hand the
+        # wait to the citizen (a simulated citizen does not "try again shortly").
         history = await wait_for(city, need_id, ready, LEDGER_WAIT)
         rx = fresh_reply(history, seen, "prescription", match) or ledger_reply(history, "prescription", match)
-        agenda = fresh_reply(history, seen, "agenda") or ledger_reply(history, "agenda")
+        agenda = agenda_of(history) or ledger_reply(history, "agenda")
     if not rx or not agenda:
         await send(city, citizen, "I am sorry for the wait: the registry has not answered despite several attempts over "
                    "the last minutes. As soon as you write again I pick up from here, with nothing to repeat." if english
@@ -107,6 +107,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         return
     prescription = fields(rx.text)
     procedure, priority = prescription.get("procedure", ""), prescription.get("priority", "")
+    remember_agenda(agenda)
     now = agenda_clock(agenda)
     agenda_read = _clock.monotonic()
     owner = prescription.get("patient") or prescription.get("citizen")
@@ -148,7 +149,7 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
     started, attempt = asyncio.get_running_loop().time(), 0
     while not items and not complete and await ledger_pause(attempt, started):
         attempt += 1
-        items, doctors, history, complete = await read_world(city, need_id, history, procedure)
+        items, doctors, history, complete = await read_world(city, need_id, history, procedure, ask=False)
     # Still silent after the whole budget: the partner ring below is the only way left to a booking.
     # Do not reoffer a slot that the responsible facility cancelled in this case.
     previous_offers = offers(history, city.agent_id, citizen)
@@ -715,30 +716,40 @@ async def language_fallback(city: City, need_id: str, history: list, citizen: st
 # --- the world in parallel: page 1, then every other page at once ------------------------
 
 # One complete world read per procedure, shared by every case on this pod for WORLD_TTL real
-# seconds (half an agenda hour). Each citizen used to re-read up to 20 pages from a shared, slow
+# seconds (two agenda hours). Each citizen used to re-read up to 20 pages from a shared, slow
 # Ledger. A slot taken meanwhile is refused at hold time and rebooked, as before.
-WORLD_TTL = 30.0
+WORLD_TTL = 120.0
 WORLD_CACHE: dict[str, tuple[float, list, dict]] = {}
 
 
-async def read_world(city: City, need_id: str, history: list, procedure: str):
-    """Ledger world pages, asked in parallel after page 1, retrying only missing pages."""
+async def read_world(city: City, need_id: str, history: list, procedure: str, *, ask: bool = True):
+    """Ledger world pages, asked in parallel after page 1, retrying only missing pages.
+
+    ``ask=False`` waits for pages already asked in this case and asks only pages never asked:
+    a queued Ledger answers every request, so asking again only delays the whole team."""
     cached = WORLD_CACHE.get(procedure)
     if cached and _clock.monotonic() - cached[0] < WORLD_TTL:
         return [dict(item) for item in cached[1]], dict(cached[2]), history, True
-    items, doctors, history, complete = await _read_world_pages(city, need_id, history, procedure)
+    items, doctors, history, complete = await _read_world_pages(city, need_id, history, procedure, ask=ask)
     if complete and items and WORLD_TTL > 0:
         WORLD_CACHE[procedure] = (_clock.monotonic(), [dict(item) for item in items], dict(doctors))
     return items, doctors, history, complete
 
 
-async def _read_world_pages(city: City, need_id: str, history: list, procedure: str):
+async def _read_world_pages(city: City, need_id: str, history: list, procedure: str, *, ask: bool = True):
     seen = {row.msg_id for row in history}
     is_slots = lambda m: m.sender == LEDGER and act(m.text) == "slots"
+    asked = {fields(row.text).get("page", "1") for row in history
+             if row.sender == city.agent_id and row.recipient == LEDGER
+             and row.text.startswith(f"world procedure={procedure} ")}
+    if not ask:
+        # Pages answered while we waited count as fresh: they were asked in this case.
+        seen = {row.msg_id for row in history if not is_slots(row)}
     page_of = lambda m: slots_page(m) if is_slots(m) and m.msg_id not in seen else None
     first = None
-    for _ in range(2):
-        await send(city, LEDGER, f"world procedure={procedure} page=1")
+    for _ in range(2 if ask else 1):
+        if ask or "1" not in asked:
+            await send(city, LEDGER, f"world procedure={procedure} page=1")
         history = await wait_for(city, need_id, lambda h: any(page_of(m) == "1" for m in h), LEDGER_WAIT)
         first = next((m for m in reversed(history) if page_of(m) == "1"), None)
         if first is not None:
@@ -752,10 +763,11 @@ async def _read_world_pages(city: City, need_id: str, history: list, procedure: 
     total = max(1, min(total, 20))
     wanted = {str(page) for page in range(1, total + 1)}
     if total > 1:
-        await asyncio.gather(*(send(city, LEDGER, f"world procedure={procedure} page={page}") for page in range(2, total + 1)))
+        await asyncio.gather(*(send(city, LEDGER, f"world procedure={procedure} page={page}")
+                               for page in range(2, total + 1) if ask or str(page) not in asked))
         history = await wait_for(city, need_id, lambda h: wanted <= {page_of(m) for m in h}, LEDGER_WAIT)
         missing = sorted(wanted - {page_of(m) for m in history}, key=int)
-        if missing:
+        if missing and ask:
             await asyncio.gather(*(send(city, LEDGER, f"world procedure={procedure} page={page}") for page in missing))
             history = await wait_for(city, need_id, lambda h: wanted <= {page_of(m) for m in h}, LEDGER_WAIT)
     items, doctors, done, seen_slots = [], {}, set(), set()

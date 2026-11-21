@@ -1668,8 +1668,8 @@ async def _finish_prescription(
         backoff = tuple(ticks * _PULL_PAUSE for ticks in (4, 8, 12))
         reply, fresh = await _bounded_wait(city, need_id, fresh, request, backoff, seen=seen, deadline=deadline)
     if reply is None and not _escalated(fresh, city.agent_id):
-        # A lookup can reach the Ledger before the preceding write has been processed.
-        await _say(city, LEDGER, lookup)
+        # No second lookup: the Ledger answers every request in order (~17 min late at 13:50),
+        # and each extra request queued behind the others and delayed every case of the team.
         backoff = tuple(ticks * _PULL_PAUSE for ticks in (16, 20, 24))
         reply, fresh = await _bounded_wait(city, need_id, fresh, request, backoff, seen=seen, deadline=deadline)
     # Under load the Ledger confirmed minutes later and the push never reopened the case: ten
@@ -1680,7 +1680,6 @@ async def _finish_prescription(
     while reply is None and not _escalated(fresh, city.agent_id) and loop.time() < patience:
         await asyncio.sleep(pause)
         pause = min(pause * 2, 30.0)
-        await _say(city, LEDGER, lookup)
         late = min(patience, loop.time() + 20.0)
         polls = tuple(ticks * _PULL_PAUSE for ticks in (0, 4, 8, 16))
         reply, fresh = await _bounded_wait(city, need_id, fresh, request, polls, seen=seen, deadline=late)

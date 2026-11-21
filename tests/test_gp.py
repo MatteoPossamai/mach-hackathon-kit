@@ -82,7 +82,8 @@ class GPTest(unittest.TestCase):
                         self.rows.append(msg(gp.LEDGER, f'prescription prescription_number={number} '
                                              'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
 
-        for available_after in (1, 2):
+        # One lookup only: a queued Ledger answers it (a slow one is test_slow_ledger_*).
+        for available_after in (1,):
             with self.subTest(available_after=available_after):
                 city = ReadbackCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
                 city.available_after = available_after
@@ -215,20 +216,29 @@ class GPTest(unittest.TestCase):
         self.assertFalse(any('non ha confermato' in text for to, text in c.out), c.out)
 
     def test_slow_ledger_still_ends_with_the_prescription(self):
-        """Under load the Ledger confirmed after minutes: the citizen stayed on 'Sto aspettando' (journey open)."""
+        """Under load the Ledger confirmed minutes late but in order (13:50: ~17 min). Wait for the
+        answer; every extra lookup only queued behind it and delayed the whole team."""
         class LateCity(City):
             lookups = 0
+            reads = 0
+            due = None
+            async def history(self, **kwargs):
+                self.reads += 1
+                if self.due and self.reads >= self.due[0]:
+                    self.rows.append(self.due[1])
+                    self.due = None
+                return await super().history(**kwargs)
             async def say(self, to, text):
                 await super().say(to, text)
+                if to == gp.LEDGER and text.startswith('prescribe '):
+                    number = gp.fields_of(text)['prescription_number']
+                    self.due = (self.reads + 10, msg(gp.LEDGER, f'prescription prescription_number={number} '
+                                                     'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
                 if to == gp.LEDGER and text.startswith('prescription '):
                     self.lookups += 1
-                    if self.lookups == 4:
-                        number = gp.fields_of(text)['prescription_number']
-                        self.rows.append(msg(gp.LEDGER, f'prescription prescription_number={number} '
-                                             'patient=citizen:1 procedure=VIS-FIS priority=B state=issued'))
         city = LateCity(msg('citizen:1', 'Ho mal di schiena da settimane'), mode='silent')
         self.run_gp(city)
-        self.assertGreaterEqual(city.lookups, 4)
+        self.assertLessEqual(city.lookups, 1)
         self.assertTrue(any(to == 'citizen:1' and text.startswith('prescription ') for to, text in city.out))
 
     def test_lookup_requires_issued_matching_prescription(self):

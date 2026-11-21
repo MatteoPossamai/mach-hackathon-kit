@@ -21,6 +21,7 @@ booking.bc_flow.RECEIPT_WAIT = 0.05
 booking.bc_flow.RING_WAIT = 0.05
 booking.bc_common.DEDUP_SECONDS = 0.0  # tests reuse texts across cases; DedupTest covers it
 booking.bc_flow.WORLD_TTL = 0.0  # each test builds its own world; WorldCacheTest covers the cache
+booking.bc_common.AGENDA_TTL = 0.0  # each test has its own agenda; AgendaCacheTest covers the cache
 
 
 def msg(sender, text, recipient='agent:team/booking', mid='x'):
@@ -1028,7 +1029,8 @@ class SlowLedgerTest(unittest.TestCase):
 
     def test_silent_world_still_ends_in_a_booking(self):
         async def run():
-            city = self.silent_city({'prescription': 6, 'agenda': 2, 'world': 5})
+            # One lost request of each kind; a Ledger that is only slow is QueuedLedger below.
+            city = self.silent_city({'prescription': 1, 'agenda': 1, 'world': 1})
             await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
             to_citizen = [text for to, text in city.out if to == 'citizen:1']
             self.assertFalse([t for t in to_citizen if any(s in t for s in self.STALL_TEXTS)], to_citizen)
@@ -1089,6 +1091,42 @@ class SlowLedgerTest(unittest.TestCase):
             self.assertNotIn(booking.bc_flow.ACK_IT, [t for to, t in city.out if to == 'citizen:1'])
         asyncio.run(run())
 
+    def test_queued_ledger_is_asked_once_not_flooded(self):
+        """13:50: the Ledger answered every request ~17 min late, in order. Each retry queued
+        behind the first and delayed every case of the team; a late answer must still book."""
+        async def run():
+            class QueuedLedger(JourneyCity):
+                def __init__(self):
+                    super().__init__()
+                    self.asked, self.pending, self.reads = {}, [], 0
+                async def history(self, *, need_id):
+                    self.reads += 1
+                    due = [p for p in self.pending if p[0] <= self.reads]
+                    for item in due:
+                        self.pending.remove(item)
+                        self.rows.append(item[1])
+                    return self.rows
+                async def say(self, to, text):
+                    if to != 'city:ledger':
+                        return await super().say(to, text)
+                    head = booking.act(text)
+                    self.asked[head] = self.asked.get(head, 0) + 1
+                    before = len(self.rows)
+                    await super().say(to, text)
+                    replies = self.rows[before + 1:]
+                    del self.rows[before + 1:]
+                    for row in replies:
+                        self.pending.append((self.reads + 6, row))
+            city = QueuedLedger()
+            await city.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            offer = next(t for to, t in city.out if to == 'citizen:1' and t.startswith('offer ') and 'waiting_list' not in t)
+            self.assertIn('slot_id=s1', offer)
+            self.assertNotIn('rules', city.asked)
+            self.assertLessEqual(city.asked.get('prescription', 0), 2, city.asked)
+            self.assertLessEqual(city.asked.get('agenda', 0), 2, city.asked)
+            self.assertLessEqual(city.asked.get('world', 0), 2, city.asked)
+        asyncio.run(run())
+
     def test_world_silent_past_patience_goes_to_partners_not_a_stall(self):
         async def run():
             booking.bc_common.LEDGER_PATIENCE = 0.3
@@ -1097,6 +1135,25 @@ class SlowLedgerTest(unittest.TestCase):
             to_citizen = [text for to, text in city.out if to == 'citizen:1']
             self.assertFalse([t for t in to_citizen if any(s in t for s in self.STALL_TEXTS)], to_citizen)
             self.assertGreater(city.asked['world'], 2)
+        asyncio.run(run())
+
+
+class AgendaCacheTest(unittest.TestCase):
+    def tearDown(self):
+        booking.bc_common.AGENDA_TTL = 0.0
+        booking.bc_common.AGENDA_SEEN[:] = [None, 0.0]
+
+    def test_second_case_reuses_the_agenda(self):
+        async def run():
+            booking.bc_common.AGENDA_TTL = 120.0
+            booking.bc_common.AGENDA_SEEN[:] = [None, 0.0]
+            first = JourneyCity()
+            await first.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            second = JourneyCity()
+            await second.receive('citizen:1', 'need.request prescription_number=rx1 lang=en')
+            agenda_asks = [t for to, t in second.out if to == 'city:ledger' and t == 'agenda']
+            self.assertEqual(agenda_asks, [])
+            self.assertTrue(any(t.startswith('offer ') for to, t in second.out if to == 'citizen:1'))
         asyncio.run(run())
 
 
