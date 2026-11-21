@@ -137,6 +137,7 @@ class FamilyCounselingTest(unittest.TestCase):
         """Journey 394: 4+ minutes of silence for 'Voglio prenotare visita per consultorio'."""
         import fc_ack
         fc_ack.ACK_DELAY = 0.05
+        fc_ack.ACKED.clear()
         original = fc._dispatch
         try:
             async def slow(*args, **kwargs):

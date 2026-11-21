@@ -81,3 +81,58 @@ def untargeted_request(message, need, words) -> bool:
     named = " ".join(str(body.get(key) or "") for key in ("procedure", "service_type", "service", "summary"))
     named = (named + " " + str(getattr(need, "service", "") or "")).lower()
     return not any(word in named for word in words)
+
+
+
+# need_id -> monotonic time of the note this pod already sent for that case.
+ACKED: dict[str, float] = {}
+
+
+def should_note(message) -> bool:
+    """A citizen's plain request (not a confirm, cancel, consent or check-in) that this pod has not noted."""
+    from city_sdk.city import understood
+    if not str(getattr(message, "sender", "")).startswith("citizen:"):
+        return False
+    key = getattr(message, "need_id", None) or getattr(message, "msg_id", "")
+    if key in ACKED:
+        return False
+    try:
+        kind = understood(message).type
+    except Exception:  # noqa: BLE001 - a note is a courtesy, never a reason to fail the turn
+        kind = ""
+    return kind in ("", "need.request", "chat")
+
+
+async def with_early_note(city, message, work, say, text: str, delay: float | None = None) -> None:
+    """Run ``work``; if nothing reached the citizen after ``delay`` seconds, send ``text``.
+
+    Unlike with_delayed_ack this starts before any history read: after 13:25 citizens stayed at
+    msgs=1 for 4-15 minutes because the first history read itself hung on a congested relay."""
+    import time as _t
+    citizen = message.sender
+    key = getattr(message, "need_id", None) or getattr(message, "msg_id", "")
+    sent = {"citizen": False}
+    raw = city.say
+
+    async def tracked(to, body, *args, **kwargs):
+        result = await raw(to, body, *args, **kwargs)
+        if to == citizen:
+            sent["citizen"] = True
+        return result
+
+    city.say = tracked
+
+    async def note() -> None:
+        await asyncio.sleep(ACK_DELAY if delay is None else delay)
+        if sent["citizen"] or key in ACKED:
+            return
+        if len(ACKED) > 20000:
+            ACKED.clear()
+        ACKED[key] = _t.monotonic()
+        await say(city, citizen, text)
+
+    task = asyncio.create_task(note())
+    try:
+        await work
+    finally:
+        task.cancel()

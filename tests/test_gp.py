@@ -101,6 +101,35 @@ class GPTest(unittest.TestCase):
                 self.assertEqual(sum(to == 'citizen:1' and text.startswith('prescription ')
                                      for to, text in city.out), 1)
 
+    def test_note_goes_out_even_when_the_first_history_read_hangs(self):
+        """After 13:25 citizens stayed at msgs=1 for 4-15 min: the note waited for a history
+        read that itself hung on a congested relay."""
+        gp.gp_ack.ACK_DELAY = 0.05
+        gp.gp_ack.ACKED.clear()
+        events = []
+        class Hung(City):
+            async def history(self, **kwargs):
+                await asyncio.sleep(0.3)
+                events.append('history')
+                return await super().history(**kwargs)
+            async def say(self, to, text):
+                events.append('note' if text == gp.gp_ack.ACK_IT else 'say')
+                await super().say(to, text)
+        try:
+            c = Hung(msg('citizen:9', 'Ho mal di schiena da settimane'), mode='success')
+            c.inbound = Message(type='chat', sender='citizen:9', recipient='agent:gp', msg_id='m9', need_id='N-HUNG',
+                                body={'text': 'Ho mal di schiena da settimane'})
+            c.rows = [c.inbound]
+            self.run_gp(c)
+            to_citizen = [text for to, text in c.out if to == 'citizen:9']
+            self.assertEqual(to_citizen[0], gp.gp_ack.ACK_IT, c.out)
+            self.assertTrue(any(text.startswith('prescription ') for text in to_citizen), c.out)
+            self.assertEqual(to_citizen.count(gp.gp_ack.ACK_IT), 1)
+            self.assertLess(events.index('note'), events.index('history'), events)
+        finally:
+            gp.gp_ack.ACK_DELAY = 8.0
+            gp.gp_ack.ACKED.clear()
+
     def test_deploy_probe_ends_without_a_relay_read(self):
         """custody.ack 13:12: the conformance probe (service=lab) cost one slow history read."""
         reads = []
@@ -157,6 +186,7 @@ class GPTest(unittest.TestCase):
     def test_slow_first_turn_sends_a_warm_note_and_fast_turn_does_not(self):
         """Journeys 373/395: 2-5 minutes of silence while the Ledger was slow."""
         gp.gp_ack.ACK_DELAY = 0.05
+        gp.gp_ack.ACKED.clear()
         try:
             async def slow(*args, **kwargs):
                 await asyncio.sleep(0.2)

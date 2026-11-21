@@ -180,6 +180,16 @@ async def main(need: Need, city: City) -> None:
         await c.say(city, message.sender, f"address={street}")
         return
 
+    if fc_ack.should_note(message):
+        note = fc_ack.ACK_EN if c.is_english([], text) else fc_ack.ACK_IT
+        await fc_ack.with_early_note(
+            city, message, _gated(need, city, message),
+            lambda cy, to, t: c.say(cy, to, t, allowed_citizen=message.sender), note)
+        return
+    await _gated(need, city, message)
+
+
+async def _gated(need: Need, city: City, message: Message) -> None:
     key = message.need_id or message.msg_id or "default"
     rank = _turn_priority_rank(need, message, key)
     urgent = rank == 0
@@ -196,14 +206,7 @@ async def main(need: Need, city: City) -> None:
                     case, city.agent_id, "escalate.emergency", to=message.sender, word="escalate.emergency"
                 ):
                     return
-                work = _dispatch(city, message, case, key, urgent=urgent)
-                if message.sender.startswith("citizen:") and fc_ack.first_contact(case, city.agent_id, message.sender):
-                    note = fc_ack.ACK_EN if c.is_english(case, text) else fc_ack.ACK_IT
-                    await fc_ack.with_delayed_ack(
-                        city, message, work,
-                        lambda cy, to, t: c.say(cy, to, t, allowed_citizen=message.sender), note)
-                else:
-                    await work
+                await _dispatch(city, message, case, key, urgent=urgent)
         finally:
             gate.turns -= 1
             if gate.turns == 0 and _GATES.get(key) is gate:
