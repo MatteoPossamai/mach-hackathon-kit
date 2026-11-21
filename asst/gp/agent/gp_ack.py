@@ -40,3 +40,28 @@ async def with_delayed_ack(city, message, work, say, text: str, delay: float | N
         await work
     finally:
         task.cancel()
+
+
+HISTORY_RETRY = (1.0, 2.0, 4.0)
+
+
+def resilient_history(city):
+    """Make every ``city.history`` of this turn retry a busy relay (429/5xx/timeout).
+
+    An unprotected history read that hit a 429 killed the turn before any reply: the citizen
+    who wrote again at 12:02 (journey 2840007) still had no answer at 12:07."""
+    if getattr(city, "_ack_resilient", False):
+        return city
+    raw = city.history
+
+    async def history(*args, **kwargs):
+        for pause in HISTORY_RETRY:
+            try:
+                return await raw(*args, **kwargs)
+            except Exception:  # noqa: BLE001 - CapError, httpx timeouts: transient under load
+                await asyncio.sleep(pause)
+        return await raw(*args, **kwargs)
+
+    city.history = history
+    city._ack_resilient = True
+    return city

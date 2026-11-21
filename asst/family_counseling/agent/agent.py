@@ -146,6 +146,7 @@ async def main(need: Need, city: City) -> None:
     message = city.inbound
     if message is None or message.sender == city.agent_id:
         return
+    fc_ack.resilient_history(city)
 
     text = message.text or need.summary
     if text == "__error__" or need.summary == "__error__":
