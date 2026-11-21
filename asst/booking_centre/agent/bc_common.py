@@ -106,6 +106,7 @@ def clean_prose(text: str) -> str:
 
 
 _RECENT_SENDS: dict[tuple[str, str], float] = {}
+LAST_SENT: dict[str, float] = {}  # recipient -> monotonic time of our last message
 DEDUP_SECONDS = 120.0
 
 
@@ -117,6 +118,7 @@ async def send(city: City, recipient: str, text: str) -> bool:
         import time as _t
         key = (recipient, hashlib.sha256(text.encode()).hexdigest())
         now = _t.monotonic()
+        LAST_SENT[recipient] = now
         if now - _RECENT_SENDS.get(key, -1e9) < DEDUP_SECONDS:
             return True
         if len(_RECENT_SENDS) > 5000:

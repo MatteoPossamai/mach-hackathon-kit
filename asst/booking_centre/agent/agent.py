@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time as _clock
 from datetime import datetime, timedelta
 
 from city_sdk.city import LEDGER, CapError, City, Need, clinical, OutOfScope, understood
@@ -66,7 +67,10 @@ async def main(need: Need, city: City) -> None:
                 if index is not None and any(row.sender == incoming.sender and "cancel" in row.text.replace(",", " ").split()
                                              for row in rows[index + 1:]):
                     return
+            started = _clock.monotonic()
             await handle(city, incoming)
+            if incoming.sender.startswith("citizen:") and LAST_SENT.get(incoming.sender, -1.0) < started:
+                await never_silent(city, incoming)
         finally:
             # Keep locks while waiting turns exist; removing them here could create two locks.
             if not getattr(lock, "_waiters", None):
@@ -98,6 +102,31 @@ async def book_choice(city: City, message, history: list, citizen: str, selected
             return
         await confirm_at_facility(city, message.need_id, citizen, selected, consent, cross)
     return
+
+
+async def never_silent(city: City, incoming) -> None:
+    """A citizen turn that produced no message: answer with a concrete next step, never silence."""
+
+    try:
+        history = await city.history(need_id=incoming.need_id)
+    except CapError:
+        history = []
+    english = writes_english(history, incoming.sender)
+    refusing = "cancel" in incoming.text.replace(",", " ").split()
+    wl = "wl-" + hashlib.sha256(incoming.need_id.encode()).hexdigest()[:16]
+    if refusing:
+        text = (f"offer offer_id={wl} waiting_list=true\n"
+                + ("Understood, I have taken those times off. Tell me which days, times or doctor suit you "
+                   "and I will search again at once, also at partner facilities; meanwhile I can put you on "
+                   "the waiting list." if english else
+                   "Capito, ho tolto quegli orari. Mi dica quali giorni, orari o medico le vanno bene e cerco "
+                   "subito di nuovo, anche nelle strutture partner; intanto posso inserirla in lista d'attesa."))
+    else:
+        text = ("I have your message and I am working on your booking: I will write to you as soon as I have "
+                "the times. If you have preferences (days, language, doctor), tell me now." if english else
+                "Ho ricevuto il suo messaggio e sto lavorando alla prenotazione: le scrivo appena ho gli orari. "
+                "Se ha preferenze (giorni, lingua, medico), me le dica pure.")
+    await send(city, incoming.sender, text)
 
 
 async def follow_up(city: City, need_id: str, history: list, citizen: str) -> None:
