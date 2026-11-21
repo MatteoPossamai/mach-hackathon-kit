@@ -128,7 +128,17 @@ async def search(city: City, need_id: str, history: list, citizen: str, number: 
         # with another doctor is better than no slot at all.
         prefs = {key: value for key, value in prefs.items() if key != "lang"}
     # Fetch every page before offering, otherwise the citizen cannot choose later pages.
-    items, doctors, history, _ = await read_world(city, need_id, history, procedure)
+    items, doctors, history, complete = await read_world(city, need_id, history, procedure)
+    if not items and not complete:
+        # An empty read is a slow Ledger, not an empty city: S counts every slot, so a waiting
+        # list here costs -1. Read once more, then say we are still checking (never "no slots").
+        await asyncio.sleep(8.0)
+        items, doctors, history, complete = await read_world(city, need_id, history, procedure)
+    if not items and not complete:
+        await send(city, citizen, "The registry is slow right now: I am still checking the slots and will write to you as soon as I have them."
+                   if english else
+                   "Il registro in questo momento è lento: sto ancora verificando i posti e le scrivo appena li ho.")
+        return
     # Do not reoffer a slot that the responsible facility cancelled in this case.
     previous_offers = offers(history, city.agent_id, citizen)
     cancelled = set()
